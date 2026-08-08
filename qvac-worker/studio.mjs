@@ -463,6 +463,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/status') {
       await Promise.all([detectorHealth(),visionpsyHealth()])
       return json(res, 200, {
+        studio: { build: 'agent/deep-video-v3', narrative: 'deep-recorded-v3', live: 'narrative-v2' },
         detector: { ready: detectorReady, engine: '@qvac/onnx · Core ML', reason: detectorReason },
         animalPose: { enabled: poseReady, engine: poseReady?'@qvac/onnx · RTMPose AP-10K':'not connected', provider: poseReady?'QVAC auto_gpu (Core ML requested)':null },
         visionpsy: { enabled: visionpsyReady, engine: visionpsyReady ? 'VisionPsy local' : 'starting or not connected' },
@@ -550,7 +551,7 @@ const server = http.createServer(async (req, res) => {
       const requested = url.pathname === '/' ? 'index.html' : url.pathname.slice(1)
       if (!['index.html', 'styles.css', 'app.js', 'narrative-engine-v2.js', 'deep-video-v3.js'].includes(requested)) return json(res, 404, { error: 'not found' })
       const file = path.join(publicDir, requested)
-      res.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream' })
+      res.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream', 'x-studio-build':'agent/deep-video-v3', 'cache-control':'no-store' })
       return fs.createReadStream(file).pipe(res)
     }
     return json(res, 404, { error: 'not found' })

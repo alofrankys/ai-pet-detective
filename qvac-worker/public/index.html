@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VisionPsy Studio</title><link rel="stylesheet" href="/styles.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="studio-build" content="deep-video-v3"><title>VisionPsy Studio</title><link rel="stylesheet" href="./styles.css"><script>if(location.protocol==='file:')location.replace('http://127.0.0.1:8803/')</script></head>
 <body>
   <main class="studio">
     <header class="topbar">
@@ -15,7 +15,13 @@
       <video id="camera" autoplay playsinline muted></video>
       <canvas id="overlay"></canvas>
       <div id="sourceBadge" class="source-badge" hidden></div>
-      <div id="deepProgress" class="deep-progress" hidden><div><span id="deepPhase">Deep recorded analysis</span><strong id="deepPercent">0%</strong></div><progress id="deepProgressBar" max="100" value="0"></progress><small id="deepDetail">Preparing the recorded video…</small></div>
+      <div id="deepProgress" class="deep-progress" hidden role="status" aria-live="polite">
+        <div class="deep-progress-head"><span class="deep-progress-kicker">DEEP ANALYSIS</span><strong id="deepPercent">0%</strong></div>
+        <strong id="deepPhase" class="deep-progress-title">Perception</strong>
+        <small id="deepDetail">Preparing the recorded video…</small>
+        <progress id="deepProgressBar" max="100" value="0"></progress>
+        <div class="deep-steps" aria-hidden="true"><span data-deep-step="0">Perception</span><span data-deep-step="1">Event detection</span><span data-deep-step="2">Semantic review</span><span data-deep-step="3">Final story</span></div>
+      </div>
       <div id="emptyState" class="empty-state"><strong data-i18n="heroTitle">Make the scene readable.</strong><span data-i18n="heroCopy">Use the camera, a file or a YouTube URL.</span><div class="source-actions"><button id="startButton" data-i18n="startCamera">Start camera</button><button id="fileButton" class="secondary" data-i18n="openVideo">Open video</button><button id="youtubeButton" class="secondary youtube-source" data-i18n="youtubeUrl">YouTube URL</button></div></div>
     </section>
     <section class="lower">
@@ -26,13 +32,13 @@
       <div class="detected-line"><span class="section-label" data-i18n="detected">DETECTED</span><div id="detectedList" class="detected-list"><span>—</span></div></div>
       <div class="timeline-head"><span class="section-label" data-i18n="recentEvents">RECENT EVENTS</span><span id="fps">—</span></div>
       <div id="timeline" class="timeline" aria-live="polite"></div>
-      <button id="sessionSummaryButton" class="summary-button" hidden>Session summary</button>
+      <button id="sessionSummaryButton" class="summary-button" data-i18n="sessionStory" hidden>Session Story</button>
     </section>
   </main>
   <canvas id="capture" width="640" height="640" hidden></canvas>
   <input id="videoFile" type="file" accept="video/*" hidden>
   <div id="youtubeModal" class="session-modal source-modal" hidden role="dialog" aria-modal="true" aria-labelledby="youtubeModalTitle"><section><button id="closeYoutubeModal" class="close-modal" aria-label="Close">×</button><span class="eyebrow">VISIONPSY</span><h2 id="youtubeModalTitle" data-i18n="youtubeTitle">Analyse a YouTube video</h2><p data-i18n="youtubeCopy">Paste the URL of a public video. It will use the same analysis as camera and uploaded files.</p><form id="youtubeForm"><input id="youtubeInput" type="url" inputmode="url" autocomplete="url" placeholder="https://www.youtube.com/watch?v=…" required><button id="youtubeSubmit" type="submit" data-i18n="analyseUrl">Analyse URL</button></form><p id="youtubeError" class="source-error" hidden></p></section></div>
-  <div id="sessionModal" class="session-modal" hidden role="dialog" aria-modal="true" aria-labelledby="sessionModalTitle"><section><button id="closeSessionModal" class="close-modal" aria-label="Close">×</button><span id="narrativeVersion" class="eyebrow">VISIONPSY · NARRATIVE V2</span><h2 id="sessionModalTitle">Session summary</h2><p id="sessionSummaryText"></p><div id="sessionSummaryFacts" class="summary-facts"></div><div class="summary-actions"><button id="exportDebugButton" class="secondary" data-i18n="exportDebug">Export debug JSON</button></div></section></div>
-  <script type="module" src="/app.js"></script>
+  <div id="sessionModal" class="session-modal story-modal" hidden role="dialog" aria-modal="true" aria-labelledby="sessionModalTitle"><section><button id="closeSessionModal" class="close-modal" aria-label="Close">×</button><span id="narrativeVersion" class="eyebrow">VISIONPSY · NARRATIVE V2</span><h2 id="sessionModalTitle" data-i18n="sessionStory">Session Story</h2><p id="sessionSummaryText" class="session-story"></p><div id="sessionSummaryFacts" class="summary-facts"></div><div class="summary-actions"><button id="exportDebugButton" class="secondary" data-i18n="exportDebug">Export debug JSON</button></div></section></div>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>
