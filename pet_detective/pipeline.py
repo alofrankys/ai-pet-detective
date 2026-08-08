@@ -14,11 +14,16 @@ class PetPipeline:
         self.behaviour = BehaviourEngine(sofa)
 
     def ingest(self, session_id: str, detections: list[Detection], at: datetime | None = None,
-               frame_size: tuple[int, int] | None = None) -> None:
+               frame_size: tuple[int, int] | None = None) -> list:
         at = at or datetime.now(timezone.utc)
         tracks = self.tracker.update(detections, at)
         self.store.add_samples(session_id, tracks, at)
-        self.store.add(self.behaviour.observe(session_id, tracks, at, frame_size))
+        events = self.behaviour.observe(session_id, tracks, at, frame_size)
+        self.store.add(events)
+        return events
+
+    def current_states(self) -> dict[str, str]:
+        return self.behaviour.current_states()
 
     def finish(self, session_id: str, at: datetime | None = None) -> dict:
         self.store.add(self.behaviour.close(session_id, at or datetime.now(timezone.utc)))

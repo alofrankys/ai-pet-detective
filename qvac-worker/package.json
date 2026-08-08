@@ -2,8 +2,14 @@
   "name": "ai-pet-detective-qvac-worker",
   "private": true,
   "type": "module",
-  "scripts": {"start": "bare detector.mjs"},
+  "scripts": {
+    "start": "node node_modules/bare-runtime/bin/bare detector.mjs",
+    "studio": "node studio.mjs",
+    "setup:models": "node setup-models.mjs",
+    "probe:model": "node node_modules/bare-runtime/bin/bare probe-onnx.mjs"
+  },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1",
     "@qvac/onnx": "^0.15.1",
     "bare-buffer": "^3.6.2",
     "bare-http1": "^4.5.7",

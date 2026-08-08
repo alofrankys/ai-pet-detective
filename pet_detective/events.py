@@ -49,6 +49,10 @@ class BehaviourEngine:
             self._interaction_started = None
         self._current.clear(); return result
 
+    def current_states(self) -> dict[str, str]:
+        """A compact snapshot for a live UI; event history remains in SQLite."""
+        return {dog_id: state for dog_id, (state, _) in self._current.items()}
+
     def _state(self, track: Track, frame_size: tuple[int, int] | None) -> str:
         x, y = track.center
         if self.sofa and frame_size:

@@ -31,6 +31,15 @@ petdetective dashboard
 The demo creates `data/pet_detective.db` and `data/reports/demo-session.json`.
 Open `http://127.0.0.1:8000` for the dashboard.
 
+The dashboard starts with a single source chooser: **Camera live** (camera 0
+on the computer running the dashboard), **Carica video** (MP4, MOV, M4V, AVI
+or MKV) or **Link YouTube**. Each choice uses the same live state/event panel
+and report. A local upload is replayed in sync with analysis; YouTube is shown
+in its embedded player while its stream is analysed locally. Motion/tracking
+runs on every frame. Optional QVAC vision is triggered at activity changes,
+with the selected interval acting only as a safety check during long,
+unchanging scenes.
+
 ## Real video or camera
 
 ```bash
@@ -38,6 +47,22 @@ petdetective analyze --source /path/to/dogs.mp4 --session morning-01
 # or
 petdetective analyze --source 0 --session living-room-live
 ```
+
+### YouTube
+
+Public YouTube videos and live streams can be analysed without downloading the
+full video. Install the optional resolver, then pass the normal URL as the
+source:
+
+```bash
+pip install -e '.[vision,youtube]'
+petdetective analyze --source 'https://www.youtube.com/watch?v=DCoYgADsmts' --session youtube-test
+```
+
+The stream is resolved when processing begins, so it may fail for private,
+age-restricted, region-restricted, or otherwise unavailable videos. A YouTube
+live is processed as a live source; it cannot offer an accurate completion
+percentage or seekable event playback.
 
 To use the QVAC detector worker instead of Ultralytics, install its dependencies,
 start it with the YOLOv10 ONNX model, then select the backend:

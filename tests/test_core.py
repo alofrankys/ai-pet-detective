@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from pet_detective.events import BehaviourEngine
 from pet_detective.models import Detection
 from pet_detective.tracking import DogTracker
+from pet_detective.sources import is_youtube_url, youtube_embed_url
 
 
 def test_tracker_preserves_two_dogs_while_crossing():
@@ -27,3 +28,10 @@ def test_play_is_one_session_not_one_event_per_frame():
         events += engine.observe("s", tracks, start+timedelta(seconds=second), (640, 480))
     events += engine.close("s", start+timedelta(seconds=6))
     assert sum(event.kind == "play_interaction" for event in events) <= 1
+
+
+def test_youtube_links_are_recognised_and_embedded_safely():
+    url = "https://www.youtube.com/watch?v=DCoYgADsmts"
+    assert is_youtube_url(url)
+    assert youtube_embed_url(url) == "https://www.youtube.com/embed/DCoYgADsmts"
+    assert not is_youtube_url("https://example.com/watch?v=DCoYgADsmts")

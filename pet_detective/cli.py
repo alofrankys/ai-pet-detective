@@ -50,7 +50,7 @@ def main():
     p = sub.add_parser("demo"); p.add_argument("--session", default="demo-session"); p.set_defaults(func=demo)
     p = sub.add_parser("report"); p.add_argument("--session", required=True); p.set_defaults(func=report)
     p = sub.add_parser("dashboard"); p.add_argument("--port", type=int, default=8000); p.set_defaults(func=dashboard)
-    p = sub.add_parser("analyze"); p.add_argument("--source", required=True, help="Video path or camera index")
+    p = sub.add_parser("analyze"); p.add_argument("--source", required=True, help="Video path, camera index, or YouTube URL")
     p.add_argument("--session", required=True); p.add_argument("--qvac", action="store_true")
     p.add_argument("--semantic-every", type=int, default=15)
     p.add_argument("--detector", choices=["ultralytics", "qvac"], default="ultralytics")
