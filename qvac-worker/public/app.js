@@ -1,3 +1,11 @@
+import {
+  NarrativeEngineV2,
+  SessionDebugRecorder,
+  estimateCameraMotion,
+  compensateMotion,
+  summaryPayload
+} from './narrative-engine-v2.js'
+
 const video = document.getElementById('camera')
 const capture = document.getElementById('capture')
 const overlay = document.getElementById('overlay')
@@ -20,6 +28,7 @@ const sessionModal = document.getElementById('sessionModal')
 const sessionSummaryText = document.getElementById('sessionSummaryText')
 const sessionSummaryFacts = document.getElementById('sessionSummaryFacts')
 const closeSessionModal = document.getElementById('closeSessionModal')
+const exportDebugButton = document.getElementById('exportDebugButton')
 const sourceBadge = document.getElementById('sourceBadge')
 const youtubeModal = document.getElementById('youtubeModal')
 const youtubeForm = document.getElementById('youtubeForm')
@@ -55,6 +64,8 @@ const copy = {
   en:{language:'Language',labels:'Labels',heroTitle:'Make the scene readable.',heroCopy:'Use the camera, a file or a YouTube URL.',startCamera:'Start camera',openVideo:'Open video',youtubeUrl:'YouTube URL',youtubeTitle:'Analyse a YouTube video',youtubeCopy:'Paste the URL of a public video. It will use the same analysis as camera and uploaded files.',analyseUrl:'Analyse URL',preparingYoutube:'Preparing YouTube video…',invalidYoutube:'Enter a valid public YouTube video URL.',cameraSource:'Live camera',fileSource:'Uploaded video',youtubeSource:'YouTube',all:'All',people:'People',animals:'Animals',objects:'Objects',scene:'SCENE',detected:'DETECTED',recentEvents:'RECENT EVENTS',waiting:'Waiting for a source',none:'Nothing detected',empty:'No clear subject in the foreground',shared:'share the scene',moving:'moving',still:'still',small:'small',medium:'medium',large:'large',appeared:'Detected',movement:'Movement',windowActivity:'Activity',together:'Moving together',togetherDetail:'Two dogs are close and moving',facialCue:'Facial gesture',animalActivity:'Animal activity',interaction:'Interaction',standing:'Standing',sitting:'Sitting',lying:'Lying down',sleeping:'Sleeping',jumping:'Jumping',approaching:'Approaching',leaving:'Moving away',following:'Following',petting:'Petting',feeding:'Feeding',running:'Running',walking:'Walking',playing:'Play',chasing:'Chasing',sniffing:'Sniffing',licking:'Licking',biting:'Mouth contact',chewing:'Chewing',eating:'Eating',drinking:'Drinking',carrying:'Carrying',holding:'Holding',picking_up:'Picking up',putting_down:'Putting down',throwing:'Throwing',offering:'Offering',using_object:'Using an object',reaching:'Reaching',pointing:'Pointing',waving:'Waving',touching:'Touching',hugging:'Hugging',tail_wagging:'Tail movement',urinating:'Urination',defecating:'Defecation',resting:'Resting',visualDetail:'Visual detail',movedLeft:'moved left',movedRight:'moved right',movedUp:'moved upward',movedDown:'moved downward',closer:'came closer to the camera',farther:'moved farther from the camera',shifted:'changed position slightly',cameraError:'Camera unavailable',engine:'Starting engine…',qvacVision:'QVAC detector · semantic engine starting',qvacPsy:'Local QVAC + VisionPsy'},
   it:{language:'Lingua',labels:'Etichette',heroTitle:'La scena, resa leggibile.',heroCopy:'Usa la fotocamera, un file o un URL YouTube.',startCamera:'Avvia fotocamera',openVideo:'Apri video',youtubeUrl:'URL YouTube',youtubeTitle:'Analizza un video YouTube',youtubeCopy:'Incolla l’URL di un video pubblico. Userà la stessa analisi di fotocamera e file caricati.',analyseUrl:'Analizza URL',preparingYoutube:'Preparazione del video YouTube…',invalidYoutube:'Inserisci l’URL valido di un video YouTube pubblico.',cameraSource:'Fotocamera live',fileSource:'Video caricato',youtubeSource:'YouTube',all:'Tutto',people:'Persone',animals:'Animali',objects:'Oggetti',scene:'SCENA',detected:'RILEVATO',recentEvents:'EVENTI RECENTI',waiting:'In attesa di una sorgente',none:'Nessun elemento',empty:'Nessun soggetto in primo piano',shared:'condividono la scena',moving:'in movimento',still:'fermo',small:'piccolo',medium:'medio',large:'grande',appeared:'Rilevato',movement:'Movimento',windowActivity:'Attività',together:'Movimento insieme',togetherDetail:'Due cani sono vicini e in movimento',facialCue:'Gesto del viso',animalActivity:'Attività animale',interaction:'Interazione',standing:'In piedi',sitting:'Seduto',lying:'Sdraiato',sleeping:'Sonno',jumping:'Salto',approaching:'Avvicinamento',leaving:'Allontanamento',following:'Segue',petting:'Carezza',feeding:'Dà da mangiare',running:'Corsa',walking:'Camminata',playing:'Gioco',chasing:'Inseguimento',sniffing:'Annusamento',licking:'Leccata',biting:'Contatto con la bocca',chewing:'Masticazione',eating:'Mangia',drinking:'Beve',carrying:'Trasporta',holding:'Tiene in mano',picking_up:'Raccoglie',putting_down:'Posa',throwing:'Lancia',offering:'Porge',using_object:'Usa un oggetto',reaching:'Allunga la mano',pointing:'Indica',waving:'Saluta',touching:'Tocca',hugging:'Abbraccio',tail_wagging:'Movimento della coda',urinating:'Minzione',defecating:'Defecazione',resting:'Riposo',visualDetail:'Dettaglio visivo',movedLeft:'si è spostato a sinistra',movedRight:'si è spostato a destra',movedUp:'si è spostato verso l’alto',movedDown:'si è spostato verso il basso',closer:'si è avvicinato alla fotocamera',farther:'si è allontanato dalla fotocamera',shifted:'ha cambiato leggermente posizione',cameraError:'Fotocamera non disponibile',engine:'Avvio del motore…',qvacVision:'Detector QVAC · motore semantico in avvio',qvacPsy:'QVAC + VisionPsy locali'}
 }
+Object.assign(copy.en,{rawObservations:'raw observations',behaviourEvents:'behaviour events',exportDebug:'Export debug JSON',finalising:'Reviewing the full video…',crouching:'Crouching',sitting_down:'Sitting down',standing_up:'Standing up',lying_down:'Lying down',rolling:'Rolling',rubbing:'Rubbing',shaking:'Shaking',stretching:'Stretching',scratching:'Scratching',mouth_open:'Mouth open',tongue_visible:'Tongue visible',head_tilt:'Head tilt',jumping_on:'Jumping on',jumping_off:'Jumping off',entering:'Entering',crossing:'Crossing',dropping:'Dropping',tugging:'Tugging',fetching:'Fetching',mouth_contact:'Mouth contact',dog_dog_interaction:'Dog interaction',person_dog_interaction:'Person–dog interaction',scene_change:'Scene change'})
+Object.assign(copy.it,{rawObservations:'osservazioni grezze',behaviourEvents:'eventi comportamentali',exportDebug:'Esporta debug JSON',finalising:'Revisione dell’intero video…',crouching:'Accovacciato',sitting_down:'Si siede',standing_up:'Si alza',lying_down:'Si sdraia',rolling:'Si rotola',rubbing:'Si strofina',shaking:'Si scuote',stretching:'Si allunga',scratching:'Si gratta',mouth_open:'Bocca aperta',tongue_visible:'Lingua visibile',head_tilt:'Testa inclinata',jumping_on:'Sale con un salto',jumping_off:'Scende con un salto',entering:'Entra',crossing:'Attraversa',dropping:'Lascia cadere',tugging:'Gioco di trazione',fetching:'Riporto',mouth_contact:'Contatto con la bocca',dog_dog_interaction:'Interazione tra cani',person_dog_interaction:'Interazione persona–cane',scene_change:'Cambio scena'})
 
 let language = 'en'
 let activeFilter = 'all'
@@ -94,14 +105,186 @@ let handCues = []
 const handDogContact = new Map()
 let animalPoseEnabled = false
 let nextAnimalPoseAt = 0
+let debugRecorder = new SessionDebugRecorder()
+let narrativeEngine = new NarrativeEngineV2({debugRecorder})
+let lastRawDebugAt = 0
+let lastCameraMotion = {dx:0,dy:0,scale:0,confidence:0}
+let pendingSemanticTrigger = null
+let finalizingSession = false
+let lastFinalResult = null
+let sessionStartedAt = performance.now()
+const referenceDetections = new Map()
+const contextHypotheses = new Map()
+const objectHypotheses = new Map()
+const objectRelations = new Map()
+const coverageFrames = []
 
 function t(key){ return copy[language][key] || copy.en[key] || key }
+
+function currentVideoSeconds(){
+  return Number.isFinite(video.currentTime)?Number(video.currentTime.toFixed(3)):Math.max(0,(performance.now()-sessionStartedAt)/1000)
+}
+
+function currentSessionDuration(){
+  return Number.isFinite(video.duration)&&video.duration>0?video.duration:currentVideoSeconds()
+}
+
+function resetNarrativeV2(){
+  sessionStartedAt=performance.now();lastRawDebugAt=0;lastCameraMotion={dx:0,dy:0,scale:0,confidence:0};pendingSemanticTrigger=null;finalizingSession=false
+  referenceDetections.clear();contextHypotheses.clear();objectHypotheses.clear();objectRelations.clear();coverageFrames.splice(0)
+  debugRecorder=new SessionDebugRecorder({sessionId:`session_${Date.now()}`,source:currentSource})
+  narrativeEngine=new NarrativeEngineV2({sessionId:debugRecorder.sessionId,source:currentSource,debugRecorder,maxStoryEvents:8})
+}
+
+function addV2Event(input,{show=true}={}){
+  const event=narrativeEngine.addEvent({...input,start:Number(input.start??currentVideoSeconds()),end:Number(input.end??input.start??currentVideoSeconds())})
+  if(show&&event.description)addEvent(semanticActionTitle(event.action),`${event.description} · ${Math.round(event.confidence*100)}%`,`v2:${event.id}`,[],1500)
+  sessionSummaryButton.hidden=false
+  return event
+}
+
+function queueSemanticTrigger(type,priority=.7,meta={}){
+  const candidate={type,priority,meta,at:currentVideoSeconds(),readyAt:Date.now()+500}
+  if(!pendingSemanticTrigger||priority>pendingSemanticTrigger.priority)pendingSemanticTrigger=candidate
+  nextInterpretAt=Math.min(nextInterpretAt||Infinity,candidate.readyAt)
+}
+
+function updateCameraMotion(objects=[]){
+  const stableLabels=new Set(['chair','couch','bed','dining table','potted plant','bench','tv','refrigerator','sink'])
+  const now=Date.now(),motions=[]
+  const grouped=new Map()
+  for(const item of objects.filter(item=>stableLabels.has(item.label)&&item.score>.32)){
+    if(!grouped.has(item.label))grouped.set(item.label,[]);grouped.get(item.label).push(item)
+  }
+  for(const [label,items] of grouped)for(const [index,item] of items.sort((a,b)=>a.box[0]-b.box[0]).slice(0,2).entries()){
+    const key=`${label}:${index}`,center={x:(item.box[0]+item.box[2])/2,y:(item.box[1]+item.box[3])/2,scale:boxArea(item.box)},previous=referenceDetections.get(key)
+    if(previous&&now-previous.at<1800)motions.push({dx:center.x-previous.x,dy:center.y-previous.y,scale:center.scale-previous.scale,confidence:item.score})
+    referenceDetections.set(key,{...center,at:now})
+  }
+  for(const [key,item] of referenceDetections)if(now-item.at>2500)referenceDetections.delete(key)
+  lastCameraMotion=estimateCameraMotion(motions)
+  return lastCameraMotion
+}
+
+function contextKey(type,value){return `${type}:${value}`}
+function rememberContext(type,value,confidence=.6,source='vision'){
+  if(!value||value==='unknown')return
+  const key=contextKey(type,value),previous=contextHypotheses.get(key)||{type,value,confidence:0,count:0}
+  const next={...previous,confidence:Math.max(previous.confidence,Number(confidence)||0),count:previous.count+1,lastAt:currentVideoSeconds(),source}
+  contextHypotheses.set(key,next);debugRecorder.addContext(next)
+}
+
+function observeContextHypotheses(value,confidence=.65){
+  const text=typeof value==='string'?value.toLowerCase():JSON.stringify(value||{}).toLowerCase()
+  if(/\b(indoor|indoors|interno|stanza|room|home|casa)\b/.test(text))rememberContext('environment','indoor',confidence)
+  if(/\b(outdoor|outdoors|esterno|grass|erba|garden|giardino|street|strada|sidewalk|marciapiede|trail|sentiero|beach|spiaggia|water|acqua)\b/.test(text))rememberContext('environment','outdoor',confidence)
+  if(/\b(vehicle|car|auto|automobile)\b/.test(text))rememberContext('environment','vehicle',confidence)
+  const scenes=[['home',/\b(home|casa|living room|soggiorno|bedroom|camera da letto)\b/],['garden',/\b(garden|yard|giardino|cortile)\b/],['park',/\bpark|parco\b/],['sidewalk',/\bsidewalk|marciapiede\b/],['street',/\bstreet|strada\b/],['trail',/\btrail|sentiero\b/],['beach',/\bbeach|spiaggia\b/],['water',/\bwater|acqua\b/],['public_indoor',/\bpublic indoor|interno pubblico\b/]]
+  for(const [scene,pattern] of scenes)if(pattern.test(text))rememberContext('scene',scene,confidence)
+  const surfaces=[['floor',/\bfloor|pavimento\b/],['couch',/\bcouch|sofa|divano\b/],['bed',/\bbed|letto\b/],['chair',/\bchair|sedia\b/],['carpet',/\bcarpet|rug|tappeto\b/],['grass',/\bgrass|lawn|erba|prato\b/],['dirt',/\bdirt|soil|terra\b/],['pavement',/\bpavement|sidewalk|marciapiede\b/],['road',/\broad|carreggiata\b/],['stairs',/\bstairs|steps|scale|gradini\b/],['water',/\bwater|acqua\b/],['vehicle',/\bvehicle|car|auto\b/]]
+  for(const [surface,pattern] of surfaces)if(pattern.test(text))rememberContext('surface',surface,confidence)
+}
+
+function currentContextPayload(){
+  const output={environment:'unknown',scene:'unknown',surface:'unknown',structures:[]}
+  for(const type of ['environment','scene','surface']){
+    const best=[...contextHypotheses.values()].filter(item=>item.type===type&&(item.count>=2||item.confidence>=.78)).sort((a,b)=>b.confidence-a.confidence||b.count-a.count)[0]
+    if(best)output[type]=best.value
+  }
+  output.hypotheses=[...contextHypotheses.values()].sort((a,b)=>b.confidence-a.confidence).slice(0,12)
+  return output
+}
+
+function postureCandidateFor(points=[]){
+  const point=index=>points[index]?.score>.32?points[index]:null,neck=point(3),tail=point(4),paws=[point(7),point(10),point(13),point(16)].filter(Boolean)
+  if(!neck||!tail||paws.length<3)return {value:'unknown',confidence:0}
+  const bodyY=(neck.y+tail.y)/2,pawY=paws.reduce((sum,paw)=>sum+paw.y,0)/paws.length,gap=pawY-bodyY,confidence=Math.min(neck.score,tail.score,...paws.map(paw=>paw.score))
+  if(gap<.14)return {value:'lying',confidence:confidence*.78}
+  if(gap>.25)return {value:'standing',confidence:confidence*.72}
+  return {value:'unknown',confidence:confidence*.5}
+}
+
+function surfaceCandidateFor(dog,detected=[]){
+  const map=new Map([['couch','couch'],['bed','bed'],['chair','chair']]),bottom=dog.box[3]
+  const supported=detected.filter(item=>map.has(item.label)&&item.score>.38).map(item=>({item,overlap:Math.max(0,Math.min(dog.box[2],item.box[2])-Math.max(dog.box[0],item.box[0]))}))
+    .filter(({item,overlap})=>overlap>.04&&bottom>=item.box[1]-.08&&dog.box[3]<=item.box[3]+.18).sort((a,b)=>b.item.score-a.item.score)[0]
+  if(supported)return {value:map.get(supported.item.label),confidence:supported.item.score}
+  const context=currentContextPayload(),hypothesis=context.hypotheses.find(item=>item.type==='surface'&&(item.count>=2||item.confidence>=.78))
+  return hypothesis?{value:hypothesis.value,confidence:hypothesis.confidence*.82}:{value:'unknown',confidence:0}
+}
+
+function updateV2SurfaceStates(dogs,detected){
+  for(const dog of dogs){const candidate=surfaceCandidateFor(dog,detected);if(candidate.value==='unknown')continue;const event=narrativeEngine.updateSurface(trackName(dog),candidate.value,currentVideoSeconds()*1000,candidate.confidence);if(event){addEvent(semanticActionTitle(event.action),`${event.description} · ${Math.round(event.confidence*100)}%`,`v2:${event.id}`,[dog],1500);queueSemanticTrigger('surface_change',.92,{actor:event.actor,from:event.from,to:event.to})}}
+}
+
+function finishIntervalTransition(transition,action,actor,target,description,source='temporal'){
+  if(!transition)return null
+  if(transition.type==='start'){queueSemanticTrigger(action,.85,{actor,target});return null}
+  return addV2Event({start:transition.start/1000,end:transition.end/1000,actor,action,target,confidence:transition.confidence,description,source,evidence:transition.meta})
+}
+
+function updateDogRelationships(objects){
+  const dogs=objects.filter(object=>object.label==='dog')
+  for(let first=0;first<dogs.length;first++)for(let second=first+1;second<dogs.length;second++){
+    const a=dogs[first],b=dogs[second],actor=trackName(a),target=trackName(b),gap=distance(a,b),aMotion=compensateMotion(a,lastCameraMotion),bMotion=compensateMotion(b,lastCameraMotion),relative=Math.hypot(aMotion.dx-bMotion.dx,aMotion.dy-bMotion.dy),active=gap<.26&&(relative>.004||a.motion+b.motion>.018)
+    const key=`dog-relation:${[a.id,b.id].sort().join(':')}`,confidence=Math.min(.88,(trackConfidence(a)+trackConfidence(b))/2+(active ? .05 : 0))
+    const transition=narrativeEngine.intervals.update(key,currentVideoSeconds()*1000,active,confidence,{gap,relative,cameraConfidence:lastCameraMotion.confidence})
+    finishIntervalTransition(transition,'dog_dog_interaction',actor,target,language==='it'?`${actor} e ${target} interagiscono a distanza ravvicinata.`:`${actor} and ${target} interact at close range.`,'detector-temporal')
+  }
+}
+
+function pointBoxDistance(point,box){
+  if(!point)return Infinity
+  const dx=Math.max(box[0]-point.x,0,point.x-box[2]),dy=Math.max(box[1]-point.y,0,point.y-box[3]);return Math.hypot(dx,dy)
+}
+
+function updateObjectStates(objects){
+  const dogs=objects.filter(item=>item.label==='dog'),items=objects.filter(item=>dogInterestLabels.has(item.label))
+  const seen=new Set()
+  for(const dog of dogs)for(const item of items){
+    const key=`${dog.id}:${item.id}`;seen.add(key);const previous=objectRelations.get(key)||{state:'visible',distance:Infinity,lastAt:currentVideoSeconds()},gap=distance(dog,item),mouthDistance=pointBoxDistance(dog.poseKeypoints?.[2],item.box),movingTogether=gap<.16&&dog.motion>.008&&item.motion>.006
+    let state=mouthDistance<.055?'mouth_contact':gap<.13?'contact':previous.distance-gap>.035?'approaching':'visible'
+    if((previous.state==='mouth_contact'||previous.state==='holding'||previous.state==='carrying')&&movingTogether)state=dog.travel>.08?'carrying':'holding'
+    const confidence=Math.min(.92,(trackConfidence(dog)+trackConfidence(item))/2+(mouthDistance < .055 ? .08 : 0))
+    if(state!==previous.state){
+      const actions={mouth_contact:'mouth_contact',holding:'holding',carrying:'carrying',approaching:'approaching'}
+      if(actions[state])addV2Event({actor:trackName(dog),action:actions[state],target:trackName(item),objects:[{id:item.id,label:item.label}],confidence,description:language==='it'?`${trackName(dog)} entra in contatto con ${trackName(item)}.`:`${trackName(dog)} interacts with ${trackName(item)}.`,source:'object-state',evidence:{detector:true,mouthDistance,gap}})
+      if(['mouth_contact','holding','carrying'].includes(state))queueSemanticTrigger('object_interaction',.9,{actor:trackName(dog),object:item.label,state})
+    }
+    objectRelations.set(key,{state,distance:gap,lastAt:currentVideoSeconds(),dog,item,confidence})
+  }
+  for(const [key,previous] of objectRelations)if(!seen.has(key)&&currentVideoSeconds()-previous.lastAt>.8){
+    if(['holding','carrying','mouth_contact'].includes(previous.state))addV2Event({actor:trackName(previous.dog),action:'dropping',target:trackName(previous.item),objects:[{id:previous.item.id,label:previous.item.label}],confidence:previous.confidence*.82,description:language==='it'?`${trackName(previous.dog)} lascia l'oggetto.`:`${trackName(previous.dog)} releases the object.`,source:'object-state'})
+    objectRelations.delete(key)
+  }
+}
+
+function recordRawDebug(objects,detected){
+  const now=Date.now();if(now-lastRawDebugAt<350)return;lastRawDebugAt=now
+  debugRecorder.addRaw({videoSeconds:currentVideoSeconds(),detections:objects.map(item=>({id:item.id,label:item.label,name:trackName(item),box:item.box,confidence:trackConfidence(item),motion:compensateMotion(item,lastCameraMotion)})),pose:objects.filter(item=>item.label==='dog').map(item=>({dogId:trackName(item),keypoints:item.poseKeypoints||[],cues:item.poseCues||[]})),hands:handCues,cameraMotion:lastCameraMotion,contextCandidates:detected.filter(item=>environmentLabels.has(item.label)||dogInterestLabels.has(item.label)).slice(0,8)})
+  if(debugRecorder.raw.length>1600)debugRecorder.raw.splice(0,debugRecorder.raw.length-1600)
+}
+
+function acceptSemanticEvent(event,item){
+  const action=String(event.action||'other'),confidence=Math.max(0,Math.min(1,Number(event.confidence)||0)),target=String(event.target||'').trim(),objectAction=new Set(['mouth_contact','biting','chewing','eating','drinking','holding','carrying','picking_up','dropping','throwing','offering','using_object','tugging','fetching']).has(action)
+  if(new Set(['sleeping','biting','eating','drinking','urinating','defecating']).has(action)&&confidence<.74)return null
+  if(objectAction&&target){
+    const detectorSupported=lastFacts.some(fact=>fact.interest||(!fact.context&&String(fact.name||fact.label).toLowerCase()===target.toLowerCase()))
+    if(!detectorSupported){
+      const generic=/^(object|toy|rope-like toy|stick|leash|oggetto|gioco|corda|bastone|guinzaglio)$/i.test(target),key=`${event.actor||'unknown'}:${action}:${target.toLowerCase()}`,state=objectHypotheses.get(key)||{count:0,confidence:0}
+      state.count++;state.confidence=Math.max(state.confidence,confidence);state.lastAt=currentVideoSeconds();objectHypotheses.set(key,state)
+      if(state.count<2||confidence<(generic ? .70 : .78))return null
+    }
+  }
+  return addV2Event({start:Math.max(0,currentVideoSeconds()-2.5),end:currentVideoSeconds(),actor:event.actor||null,action,target:target||null,objects:objectAction&&target?[{label:target}]:[],confidence,description:event.detail||item.summary,source:'visionpsy',evidence:{frames:item.evidence?.frames||3,detector:item.evidence?.detector||0,trigger:item.trigger||null}})
+}
 
 function observeContextFromNarrative(summary){
   // Context is evidence from Vision's description, never a colour-based guess.
   const text=String(summary||'').toLowerCase()
   if(/\b(erba|erbosa|prato|giardino|grass|grassy|lawn|garden)\b/.test(text))sessionContext.add('grassy-outdoor-area')
   if(/\b(pavimento|interno|stanza|floor|indoors?|room)\b/.test(text))sessionContext.add('indoor-floor')
+  observeContextHypotheses(summary,.68)
 }
 
 function sessionNarrative(){
@@ -115,22 +298,67 @@ function sessionNarrative(){
   return details.join(' ')||history.map(event=>String(event.detail||'').replace(/ · \d+%$/,'')).filter(Boolean).slice(-3).join(' ')
 }
 
-async function showSessionSummary(){
-  const history=sessionEvents.length?sessionEvents:events
-  sessionSummaryText.textContent=language==='it'?'Rielaborazione degli eventi…':'Summarising observed events…'
-  const facts=[];const dogs=sessionMaxVisible.get('dog')||0
+function flushNarrativeIntervals(){
+  const at=currentVideoSeconds()*1000,allTracks=[...tracks,...retiredTracks]
+  for(const transition of narrativeEngine.intervals.flush(at)){
+    if(transition.key.startsWith('petting:')){const id=Number(transition.key.split(':')[1]),dog=allTracks.find(item=>item.id===id),actor=dog?trackName(dog):'dog';addV2Event({start:transition.start/1000,end:transition.end/1000,actor,action:'petting',target:'person',confidence:transition.confidence,description:language==='it'?`Una persona accarezza ${actor}.`:`A person pets ${actor}.`,source:'mediapipe-hand',evidence:transition.meta},{show:false})}
+    if(transition.key.startsWith('dog-relation:')){const ids=transition.key.split(':').slice(1).map(Number),subjects=ids.map(id=>allTracks.find(item=>item.id===id)).filter(Boolean),actor=subjects[0]?trackName(subjects[0]):'dog',target=subjects[1]?trackName(subjects[1]):'dog';addV2Event({start:transition.start/1000,end:transition.end/1000,actor,action:'dog_dog_interaction',target,confidence:transition.confidence,description:language==='it'?`${actor} e ${target} interagiscono a distanza ravvicinata.`:`${actor} and ${target} interact at close range.`,source:'detector-temporal',evidence:transition.meta},{show:false})}
+  }
+  for(const actor of narrativeEngine.tail.byActor.keys()){const transition=narrativeEngine.tail.flush(actor,at);if(transition)addV2Event({start:transition.start/1000,end:transition.end/1000,actor,action:'tail_wagging',confidence:transition.confidence,description:language==='it'?`${actor} muove ripetutamente la coda.`:`${actor} repeatedly wags its tail.`,source:'pose'},{show:false})}
+}
+
+function finalEvidenceSequences(merged,duration){
+  if(!coverageFrames.length)return []
+  const selected=summaryPayload(merged,{sessionDuration:duration,maxEvents:6,context:currentContextPayload()}).events,targets=[...selected.sort((a,b)=>b.importance-a.importance).slice(0,2).map(event=>(event.start+event.end)/2),duration*.12,duration*.52,duration*.9].filter(Number.isFinite),chosen=[]
+  for(const target of targets){const closest=[...coverageFrames].sort((a,b)=>Math.abs(a.videoSeconds-target)-Math.abs(b.videoSeconds-target))[0];if(closest&&!chosen.includes(closest))chosen.push(closest);if(chosen.length===4)break}
+  return chosen.map(item=>{
+    const ordered=[...coverageFrames].sort((a,b)=>a.videoSeconds-b.videoSeconds),index=ordered.indexOf(item),frames=[ordered[Math.max(0,index-1)],item,ordered[Math.min(ordered.length-1,index+1)]].filter((frame,position,array)=>frame&&array.indexOf(frame)===position),sheet=document.createElement('canvas');sheet.width=960;sheet.height=320;const context=sheet.getContext('2d');context.fillStyle='#08100b';context.fillRect(0,0,960,320)
+    frames.forEach((frame,frameIndex)=>{context.drawImage(frame.frame,frameIndex*320,0,320,320);context.fillStyle='rgba(4,12,7,.76)';context.fillRect(frameIndex*320+8,8,34,22);context.fillStyle='#dff5e5';context.font='600 13px sans-serif';context.fillText(String(frameIndex+1),frameIndex*320+20,24)})
+    return {at:item.videoSeconds,frameCount:frames.length,image:sheet.toDataURL('image/jpeg',.8),subjects:frames.flatMap(frame=>frame.subjects||[])}
+  })
+}
+
+function fallbackV2Narrative(merged){
+  const selected=summaryPayload(merged,{sessionDuration:currentSessionDuration(),maxEvents:6,context:currentContextPayload()}).events,details=selected.map(event=>String(event.description||'').trim()).filter(Boolean)
+  if(!details.length)return sessionNarrative()
+  return details.join(' ')
+}
+
+function renderSessionFacts(merged){
+  const facts=[],dogs=sessionMaxVisible.get('dog')||0,rawCount=debugRecorder.raw.filter(item=>item.type!=='visionpsy'&&item.type!=='visionpsy-error').length
   if(dogs)facts.push(language==='it'?`${dogs} cani rilevati`:`${dogs} dogs detected`)
-  if(sessionContext.has('grassy-outdoor-area'))facts.push(language==='it'?'contesto visto: prato/giardino':'visible context: lawn/garden')
-  if(sessionContext.has('indoor-floor'))facts.push(language==='it'?'contesto visto: ambiente interno':'visible context: indoors')
+  const context=currentContextPayload();if(context.surface!=='unknown')facts.push(`${language==='it'?'superficie':'surface'}: ${context.surface}`);if(context.scene!=='unknown')facts.push(`${language==='it'?'scena':'scene'}: ${context.scene}`)
   if(currentSource?.kind==='youtube')facts.push(`YouTube · ${currentSource.title}`)
-  facts.push(language==='it'?`${history.length} eventi analizzati`:`${history.length} events analysed`)
+  facts.push(`${rawCount} ${t('rawObservations')}`);facts.push(`${merged.length} ${t('behaviourEvents')}`)
   sessionSummaryFacts.replaceChildren(...facts.map(text=>Object.assign(document.createElement('span'),{textContent:text})))
-  sessionModal.hidden=false
+}
+
+async function finalizeSession(){
+  if(lastFinalResult)return lastFinalResult
+  flushNarrativeIntervals();const duration=currentSessionDuration(),merged=narrativeEngine.merge(),payload=summaryPayload(merged,{sessionDuration:duration,maxEvents:8,context:currentContextPayload()}),seekable=currentSource?.kind!=='camera'&&Number.isFinite(video.duration)
+  debugRecorder.meta={...debugRecorder.meta,source:currentSource,duration,rawObservationCount:debugRecorder.raw.length,legacyEventCount:sessionEvents.length}
+  if(!seekable){lastFinalResult={events:merged,summary:null,context:currentContextPayload()};return lastFinalResult}
+  finalizingSession=true
   try{
-    const response=await fetch('/api/session-summary',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({language,events:history.map(event=>({title:event.title,detail:event.detail,stableKey:event.stableKey,confidence:event.confidence,videoSeconds:event.videoSeconds}))})})
+    const response=await fetch('/api/finalize-session',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({language,source:currentSource,sessionDuration:duration,events:merged,story:payload,evidenceSequences:finalEvidenceSequences(merged,duration),context:currentContextPayload()})})
     const result=response.ok?await response.json():null
-    sessionSummaryText.textContent=result?.summary||sessionNarrative()
-  }catch{sessionSummaryText.textContent=sessionNarrative()}
+    if(result?.events?.length)narrativeEngine.semantic=result.events
+    if(result)debugRecorder.addRaw({type:'final-review',videoSeconds:duration,reviews:result.reviews||[],context:result.context||{}})
+    lastFinalResult=result||{events:merged,summary:null,context:currentContextPayload()}
+  }catch(error){debugRecorder.addRaw({type:'finalize-error',message:String(error?.message||error),videoSeconds:currentVideoSeconds()});lastFinalResult={events:merged,summary:null,context:currentContextPayload()}}
+  finally{finalizingSession=false}
+  return lastFinalResult
+}
+
+async function showSessionSummary({finalPass=false}={}){
+  sessionSummaryText.textContent=finalPass?t('finalising'):(language==='it'?'Rielaborazione degli eventi…':'Summarising observed events…');sessionModal.hidden=false
+  const preliminary=narrativeEngine.merge();renderSessionFacts(preliminary)
+  try{
+    let result=finalPass?await finalizeSession():lastFinalResult
+    const merged=result?.events?.length?result.events:preliminary
+    if(!result?.summary&&merged.length){const response=await fetch('/api/session-summary',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({language,version:2,sessionDuration:currentSessionDuration(),context:currentContextPayload(),events:summaryPayload(merged,{sessionDuration:currentSessionDuration(),maxEvents:8,context:currentContextPayload()}).events})});if(response.ok)result={...(result||{}),...(await response.json())}}
+    const summary=result?.summary||fallbackV2Narrative(merged);sessionSummaryText.textContent=summary;debugRecorder.setMerged(merged);debugRecorder.setSummary(summary);renderSessionFacts(merged)
+  }catch{const merged=narrativeEngine.merge(),summary=fallbackV2Narrative(merged);sessionSummaryText.textContent=summary;debugRecorder.setMerged(merged);debugRecorder.setSummary(summary);renderSessionFacts(merged)}
 }
 function category(label){ return label === 'person' ? 'person' : animalLabels.has(label) ? 'animal' : 'object' }
 function displayLabel(label){ return labels[language][label] || label }
@@ -302,7 +530,7 @@ function analyseFaceCues(objects){
 
 function analyseHandCues(objects){
   const now=performance.now(),dogs=objects.filter(object=>object.label==='dog'),people=objects.filter(object=>object.label==='person')
-  if(!handLandmarker||!dogs.length||!people.length||now<nextHandCueAt)return
+  if(!handLandmarker||!dogs.length||now<nextHandCueAt)return
   nextHandCueAt=now+350
   try{
     const result=handLandmarker.detectForVideo(capture,now),hands=result.landmarks||[],wallNow=Date.now()
@@ -318,8 +546,10 @@ function analyseHandCues(objects){
       const history=(handDogContact.get(dog.id)||[]).filter(item=>wallNow-item.at<1800)
       history.push(...contacts);handDogContact.set(dog.id,history)
       const travel=history.slice(1).reduce((sum,item,index)=>sum+Math.hypot(item.x-history[index].x,item.y-history[index].y),0),duration=history.length>1?history.at(-1).at-history[0].at:0
-      if(history.length>=3&&duration>=650&&travel>.025){
-        const score=Math.min(.92,.58+history.length*.035+travel*.4),text=language==='it'?`Una persona accarezza ${trackName(dog)}`:`A person pets ${trackName(dog)}`
+      const active=history.length>=3&&duration>=650&&travel>.025,score=Math.min(.94,.58+history.length*.035+travel*.4+(people.length ? .06 : 0)),text=language==='it'?`Una persona accarezza ${trackName(dog)}`:`A person pets ${trackName(dog)}`
+      const transition=narrativeEngine.intervals.update(`petting:${dog.id}`,currentVideoSeconds()*1000,active,score,{hands:history.length,handTravel:travel,personDetected:Boolean(people.length)})
+      finishIntervalTransition(transition,'petting',trackName(dog),'person',text,'mediapipe-hand')
+      if(active){
         const cue={code:'petting',text,score,at:wallNow};handCues.push(cue);addEvent(t('petting'),`${text} · ${Math.round(score*100)}%`,`hand:petting:${dog.id}`,[...people.slice(0,1),dog],7000)
       }
     }
@@ -344,7 +574,7 @@ function poseCuesFor(points,previous=[]){
 async function analyseAnimalPose(objects){
   const now=performance.now(),dogs=objects.filter(object=>object.label==='dog').slice(0,2)
   if(!animalPoseEnabled||!dogs.length||now<nextAnimalPoseAt)return
-  nextAnimalPoseAt=now+650
+  nextAnimalPoseAt=now+350
   for(const dog of dogs){
     const crop=paddedSquare(dog.box),previous=dog.poseKeypoints||[]
     poseCropCtx.drawImage(capture,crop.x*640,crop.y*640,crop.size*640,crop.size*640,0,0,256,256)
@@ -354,8 +584,13 @@ async function analyseAnimalPose(objects){
       const response=await fetch('/api/pose',{method:'POST',headers:{'content-type':'application/octet-stream'},body:rgb});if(!response.ok)continue
       const result=await response.json(),localPoints=Array.isArray(result.keypoints)?result.keypoints:[]
       dog.poseCues=poseCuesFor(localPoints,previous.map(point=>point.local||point));dog.poseKeypoints=localPoints.map(point=>({...point,x:crop.x+point.x*crop.size,y:crop.y+point.y*crop.size,local:point}));dog.poseAt=Date.now()
+      const posture=postureCandidateFor(localPoints),postureEvent=narrativeEngine.updatePosture(trackName(dog),posture.value,currentVideoSeconds()*1000,posture.confidence)
+      if(postureEvent){addEvent(semanticActionTitle(postureEvent.action),`${postureEvent.description} · ${Math.round(postureEvent.confidence*100)}%`,`v2:${postureEvent.id}`,[dog],1500);queueSemanticTrigger('posture_change',.88,{actor:postureEvent.actor,action:postureEvent.action})}
+      const tail=localPoints[4],tailWasActive=narrativeEngine.tail.byActor.get(trackName(dog))?.active||false,tailEvent=tail?.score>.3?narrativeEngine.updateTail(trackName(dog),currentVideoSeconds()*1000,tail.x,tail.score):null,tailIsActive=narrativeEngine.tail.byActor.get(trackName(dog))?.active||false
+      if(!tailWasActive&&tailIsActive)queueSemanticTrigger('tail_oscillation',.72,{actor:trackName(dog)})
+      if(tailEvent)addEvent(semanticActionTitle(tailEvent.action),`${tailEvent.description} · ${Math.round(tailEvent.confidence*100)}%`,`v2:${tailEvent.id}`,[dog],1500)
       const cue=dog.poseCues[0]
-      if(cue&&cue.score>=.55)addEvent(t('animalActivity'),`${trackName(dog)} ${cue.text} · ${Math.round(cue.score*100)}%`,`dog-pose:${dog.id}:${cue.code}`,[dog],7000)
+      if(cue&&cue.code!=='tail-root-motion'&&cue.score>=.55)addEvent(t('animalActivity'),`${trackName(dog)} ${cue.text} · ${Math.round(cue.score*100)}%`,`dog-pose:${dog.id}:${cue.code}`,[dog],7000)
     }catch{}
   }
 }
@@ -367,6 +602,7 @@ function considerSemanticFrame(rgba,objects){
   const frame=document.createElement('canvas');frame.width=640;frame.height=640;frame.getContext('2d').drawImage(capture,0,0)
   const subjects=objects.map(object=>({label:object.label,box:[...object.box],motion:object.motion||0,score:trackConfidence(object)}))
   semanticFrames.push({frame,subjects,at:now,sharpness:frameSharpness(rgba)});semanticFrames.splice(0,Math.max(0,semanticFrames.length-8));lastSemanticSampleAt=now
+  if(!coverageFrames.length||currentVideoSeconds()-coverageFrames.at(-1).videoSeconds>=2.5){coverageFrames.push({frame,subjects,videoSeconds:currentVideoSeconds()});if(coverageFrames.length>30)coverageFrames.shift()}
 }
 
 function evidenceCrop(subjects){
@@ -558,6 +794,7 @@ function semanticActionTitle(action){
 
 function showSource(kind,title=''){
   currentSource={kind,title:String(title||'').trim()}
+  debugRecorder.source=currentSource
   const prefix=kind==='camera'?t('cameraSource'):kind==='youtube'?t('youtubeSource'):t('fileSource')
   sourceBadge.textContent=currentSource.title?`${prefix} · ${currentSource.title}`:prefix
   sourceBadge.hidden=false
@@ -635,6 +872,7 @@ async function analyse(){
     const response=await fetch('/api/detect',{method:'POST',headers:{'content-type':'application/octet-stream'},body:rgb})
     if(!response.ok)throw new Error((await response.json()).error||`detector ${response.status}`)
     const payload=await response.json(),candidates=dedupeDetections(trackingObjects(payload.objects||[])).map(object=>({...object,appearance:appearanceSignature(rgb,object.box)})),allCurrent=updateTracks(candidates),current=filtered(allCurrent)
+    updateCameraMotion(payload.objects||[])
     for(const label of new Set(allCurrent.filter(object=>object.missed===0&&trackConfidence(object)>=.58).map(object=>object.label))){const count=allCurrent.filter(object=>object.label===label&&object.missed===0&&trackConfidence(object)>=.58).length;sessionMaxVisible.set(label,Math.max(sessionMaxVisible.get(label)||0,count))}
     recordTemporalWindows(allCurrent)
     recordDogToyRelations(allCurrent)
@@ -642,30 +880,38 @@ async function analyse(){
     analyseFaceCues(allCurrent)
     analyseHandCues(allCurrent)
     await analyseAnimalPose(allCurrent)
+    updateV2SurfaceStates(allCurrent.filter(object=>object.label==='dog'),payload.objects||[])
+    updateDogRelationships(allCurrent)
+    updateObjectStates(allCurrent)
     const now=Date.now(),recentFaceCues=faceCues.filter(cue=>now-cue.at<4000),recentHandCues=handCues.filter(cue=>now-cue.at<4000),trackedFacts=current.map((object,index)=>({id:object.id,label:object.label,name:trackName(object),color:object.color,score:trackConfidence(object),rawScore:object.score,frames:object.evidenceFrames||1,motion:object.motion,motionText:now-(object.lastMotionAt||0)<6500?object.lastMotionText:null,size:apparentSize(object),faceCues:object.label==='person'&&index===current.findIndex(item=>item.label==='person')?recentFaceCues:[],handCues:object.label==='person'&&index===current.findIndex(item=>item.label==='person')?recentHandCues:[],poseCues:object.label==='dog'&&now-(object.poseAt||0)<2500?(object.poseCues||[]):[]}))
     const dogVisible=allCurrent.some(object=>object.label==='dog'),trackedLabels=new Set(trackedFacts.map(fact=>fact.label)),contextFacts=dogVisible?(payload.objects||[]).filter(object=>(environmentLabels.has(object.label)||dogInterestLabels.has(object.label))&&!trackedLabels.has(object.label)&&object.score>.36).slice(0,4).map(object=>({label:object.label,name:displayLabel(object.label),score:object.score,context:true,interest:dogInterestLabels.has(object.label)})):[]
     lastFacts=[...trackedFacts,...contextFacts]
+    recordRawDebug(allCurrent,payload.objects||[])
     draw(current);summarize(current)
     const elapsed=performance.now()-started;fpsLabel.textContent=`${(1000/Math.max(1,elapsed)).toFixed(1)} AI fps`
-    if(visionpsyEnabled&&!interpreting&&Date.now()>=nextInterpretAt){nextInterpretAt=Date.now()+sceneTempo(allCurrent).semanticGapMs;interpret()}
+    if(visionpsyEnabled&&!interpreting){
+      const trigger=pendingSemanticTrigger&&Date.now()>=pendingSemanticTrigger.readyAt?pendingSemanticTrigger:null
+      if(trigger||Date.now()>=nextInterpretAt){nextInterpretAt=Date.now()+sceneTempo(allCurrent).semanticGapMs;interpret(trigger)}
+    }
   }catch(error){statusDot.className='error';statusText.textContent=String(error.message||error).slice(0,70)}finally{busy=false}
 }
 
-async function interpret(){
+async function interpret(trigger=null){
   if(interpreting)return
   interpreting=true
+  if(trigger&&pendingSemanticTrigger===trigger)pendingSemanticTrigger=null
   const sequence=semanticSequenceSource(),blob=await new Promise(resolve=>sequence.source.toBlob(resolve,'image/jpeg',.84));if(!blob){interpreting=false;return}
   try{
-    const response=await fetch('/api/interpret',{method:'POST',headers:{'content-type':'image/jpeg','x-vision-facts':JSON.stringify(lastFacts),'x-language':language,'x-frame-count':String(sequence.count)},body:blob});if(!response.ok)return
+    const response=await fetch('/api/interpret',{method:'POST',headers:{'content-type':'image/jpeg','x-vision-facts':JSON.stringify(lastFacts),'x-language':language,'x-frame-count':String(sequence.count),'x-narrative-trigger':JSON.stringify(trigger||{type:'baseline'})},body:blob});if(!response.ok)return
     const item=await response.json(),semanticFacts=item.dogVerified===false?lastFacts.filter(fact=>fact.label!=='dog'&&!fact.context):lastFacts,confidence=`${Math.round(Number(item.confidence||0)*100)}%`
-    observeContextFromNarrative(`${item.context||''} ${item.summary||''}`);lastInterpretationAt=Date.now();setScene(item.summary||t('empty'),semanticFacts,{confidence})
+    item.trigger=trigger||null;debugRecorder.addRaw({type:'visionpsy',videoSeconds:currentVideoSeconds(),trigger:trigger||{type:'baseline'},response:item});observeContextFromNarrative(`${typeof item.context==='string'?item.context:JSON.stringify(item.context||{})} ${item.summary||''}`);lastInterpretationAt=Date.now();setScene(item.summary||t('empty'),semanticFacts,{confidence})
     const structured=Array.isArray(item.events)?item.events:[]
-    if(structured.length){for(const event of structured){const percent=`${Math.round(Number(event.confidence||0)*100)}%`,detail=`${event.detail} · ${percent}`;addEvent(semanticActionTitle(event.action),detail,`semantic:${event.action}:${event.actor}:${event.target}`,semanticFacts,7000)}}
+    if(structured.length){for(const event of structured){const percent=`${Math.round(Number(event.confidence||0)*100)}%`,detail=`${event.detail} · ${percent}`;addEvent(semanticActionTitle(event.action),detail,`semantic:${event.action}:${event.actor}:${event.target}`,semanticFacts,7000);acceptSemanticEvent(event,item)}}
     else addEvent(semanticTitle(item),`${item.summary} · ${confidence}`,`semantic:${item.kind||'visual'}`,semanticFacts)
-  }catch{}finally{interpreting=false;nextInterpretAt=Math.max(nextInterpretAt,Date.now()+1500)}
+  }catch(error){debugRecorder.addRaw({type:'visionpsy-error',videoSeconds:currentVideoSeconds(),message:String(error?.message||error)})}finally{interpreting=false;nextInterpretAt=pendingSemanticTrigger?Math.min(nextInterpretAt,pendingSemanticTrigger.readyAt):Math.max(nextInterpretAt,Date.now()+1500)}
 }
 
-function resetSession(){tracks=[];retiredTracks=[];nextTrackId=1;subjectCounters.clear();categoryColorCounters.clear();events.length=0;sessionEvents.length=0;sessionContext.clear();sessionMaxVisible.clear();sessionSummaryButton.hidden=true;eventLastSeen.clear();timeline.replaceChildren();lastInterpretationAt=0;semanticFrames.splice(0);lastSemanticSampleAt=0;faceCues=[];handCues=[];handDogContact.clear();nextFaceCueAt=0;nextHandCueAt=0;nextAnimalPoseAt=0;clearSceneHistory();sceneText.textContent='—'}
+function resetSession(){tracks=[];retiredTracks=[];nextTrackId=1;subjectCounters.clear();categoryColorCounters.clear();events.length=0;sessionEvents.length=0;sessionContext.clear();sessionMaxVisible.clear();sessionSummaryButton.hidden=true;eventLastSeen.clear();timeline.replaceChildren();lastInterpretationAt=0;semanticFrames.splice(0);lastSemanticSampleAt=0;faceCues=[];handCues=[];handDogContact.clear();nextFaceCueAt=0;nextHandCueAt=0;nextAnimalPoseAt=0;lastFinalResult=null;resetNarrativeV2();clearSceneHistory();sceneText.textContent='—'}
 async function startLoop(){running=true;emptyState.style.display='none';if(!timer)timer=setInterval(analyse,260)}
 async function startCamera(){
   try{stopCurrentSource();const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false});video.srcObject=stream;await video.play();resetSession();showSource('camera');startLoop()}
@@ -707,8 +953,9 @@ youtubeButton.addEventListener('click',()=>{youtubeError.hidden=true;youtubeModa
 youtubeForm.addEventListener('submit',event=>{event.preventDefault();openYoutube(youtubeInput.value.trim())})
 closeYoutubeModal.addEventListener('click',()=>youtubeModal.hidden=true)
 youtubeModal.addEventListener('click',event=>{if(event.target===youtubeModal)youtubeModal.hidden=true})
-video.addEventListener('ended',()=>{running=false;if(timer){clearInterval(timer);timer=null}showSessionSummary()})
-sessionSummaryButton.addEventListener('click',showSessionSummary)
+video.addEventListener('ended',()=>{running=false;if(timer){clearInterval(timer);timer=null}showSessionSummary({finalPass:true})})
+sessionSummaryButton.addEventListener('click',()=>showSessionSummary({finalPass:false}))
+exportDebugButton.addEventListener('click',()=>debugRecorder.download())
 closeSessionModal.addEventListener('click',()=>sessionModal.hidden=true)
 sessionModal.addEventListener('click',event=>{if(event.target===sessionModal)sessionModal.hidden=true})
 languageSelect.addEventListener('change',applyLanguage)

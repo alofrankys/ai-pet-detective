@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node node_modules/bare-runtime/bin/bare detector.mjs",
     "studio": "node studio.mjs",
+    "test:narrative": "node --test tests/narrative-engine-v2.test.mjs",
     "setup:models": "node setup-models.mjs",
     "probe:model": "node node_modules/bare-runtime/bin/bare probe-onnx.mjs"
   },

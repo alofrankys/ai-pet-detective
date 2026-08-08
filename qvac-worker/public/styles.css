@@ -60,6 +60,8 @@ video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
 .session-modal[hidden] { display:none; }
 .session-modal section { position:relative; width:min(540px,100%); padding:28px; border:1px solid #375641; border-radius:18px; background:linear-gradient(145deg,#14281b,#0d1710); box-shadow:0 28px 90px #000a; }
 .session-modal h2 { margin:6px 0 12px; font-size:25px; letter-spacing:-.03em; }.session-modal p { color:#d5e3d8; line-height:1.55; }.close-modal { position:absolute; right:14px; top:10px; border:0; color:#b8c8bd; background:transparent; font-size:28px; cursor:pointer; }.summary-facts { display:flex; flex-wrap:wrap; gap:7px; }.summary-facts span { padding:5px 7px; border:1px solid #355440; border-radius:7px; color:#9fc9ab; background:#102016; font-size:12px; }
+.summary-actions { display:flex; justify-content:flex-end; margin-top:18px; }
+.summary-actions .secondary { padding:9px 12px; border:1px solid #41644c; border-radius:9px; color:#cce9d5; background:#112218; cursor:pointer; font-weight:600; }
 .source-modal section { width:min(600px,100%); }
 .source-modal form { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:9px; margin-top:18px; }
 .source-modal input { min-width:0; padding:12px 13px; border:1px solid #385344; border-radius:11px; color:#edf7f0; background:#0a140e; outline:none; font:inherit; }

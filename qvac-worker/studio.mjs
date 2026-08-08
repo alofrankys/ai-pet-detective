@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { NOISE_ACTIONS, canonicalAction } from './public/narrative-engine-v2.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '..')
@@ -195,7 +196,7 @@ async function interpretFrameLegacy(jpeg, facts = [], language = 'en', frameCoun
   const faceGrounding = faceSignals.length ? italian ? `Segnali facciali locali misurati: ${faceSignals.join('; ')}. Descrivili come gesti visibili, non come emozioni certe.` : `Measured local facial cues: ${faceSignals.join('; ')}. Describe them as visible gestures, not certain emotions.` : ''
   const poseGrounding = poseSignals.length ? italian ? `Keypoint animali QVAC misurati: ${poseSignals.join('; ')}. Usali soltanto come postura osservabile.` : `Measured QVAC animal keypoints: ${poseSignals.join('; ')}. Use them only as observable posture.` : ''
   const dogPairGrounding=visibleDogs>=2?'Two distinct dogs are tracked. Never describe either dog as a toy or object; describe their dog-to-dog interaction only when visible.':''
-  const objectGrounding=hasObject?'Name only a tracked, unmistakable object.':'No object is tracked: do not invent a toy, ball, food, furniture, or held object.'
+  const objectGrounding=hasObject?'Detector-backed objects are strong evidence; describe only an unmistakable stable interaction.':'No detector object is available. A generic or visually obvious object may be reported only when the same object persists across at least two sequence frames at conservative confidence; never name a specific uncommon object from one ambiguous frame.'
   const grounding = labels.length ? `QVAC detector candidates: ${labels.join(', ')}. Tracked names: ${names.join(', ') || 'none'}. Candidates are not ground truth: if a dog is not unmistakably visible, ignore the dog candidate. ${dogPairGrounding} ${objectGrounding} ${motionGrounding} ${faceGrounding} ${poseGrounding}` : 'Name only one unmistakable visible subject or object.'
   const focus = italian
     ? hasDog ? `FOCUS CANE: scegli soltanto l'azione canina più chiara, senza forzarne una. Descrivi cosa fa ciascun cane e il luogo solo se utile all'azione: pavimento, divano, letto, sedia, erba, giardino o vicino a una pianta. Nomina erba o giardino soltanto se visibili con chiarezza. Considera seduto, sdraiato, in piedi, cammina, corre, annusa, si strofina, si rotola, si scuote, si allunga, sale o scende, riposa e dorme. Osserva direzione, velocità, testa, occhi, orecchie, coda e bocca. Se sono inequivocabili, segnala interazioni con palla, corda o gioco da tiro, anello, frisbee, peluche, osso, bastone, Kong o gioco puzzle, gioco da masticare o sonoro, ciotola, cibo, snack o premietto. Se una persona partecipa, includi gesto o espressione rilevante. Scrivi "scodinzola" solo se il movimento della coda è visibile. Usa "dorme" solo se è sdraiato immobile con occhi chiusi; usa "linguaggio corporeo compatibile con rilassamento, gioco, eccitazione o cautela" invece di emozioni certe. Ignora piante, mobili e sfondo se non spiegano ciò che il cane sta facendo.` : hasPerson && hasAnimal ? 'Descrivi il gesto o la distanza tra persona e animale.' : hasPerson ? 'Descrivi soltanto gesto, sguardo, bocca, guance, occhi, sopracciglia o smorfia della persona.' : hasAnimal ? 'Descrivi soltanto postura, testa, orecchie, coda, bocca, direzione o interazione dell’animale.' : 'Descrivi soltanto un oggetto centrale, tenuto, usato o mosso; ignora lo sfondo.'
@@ -243,7 +244,7 @@ async function interpretFrameLegacy(jpeg, facts = [], language = 'en', frameCoun
   if (observable.split(/\s+/).length < 3) return null
   const hasNaturalVerb = /\b(is|has|looks|appears|seems|raises|opens|smiles|turns|holds|gazes|shows|keeps|leans|faces|moves|wears|sits|stands|walks|runs|sniffs|chews|eats|plays|approaches|leaves|gestures|points|reaches|touches|bends|lies|rests|sleeps|rubs|rolls|shakes|stretches|climbs|descends|wags|exhibits|shifts|è|ha|sembra|appare|guarda|alza|apre|sorride|gira|tiene|mostra|inclina|muove|indossa|siede|sta|cammina|corre|annusa|mastica|mangia|gioca|avvicina|lascia|gesticola|indica|raggiunge|tocca|piega|giace|riposa|dorme|strofina|rotola|scuote|allunga|sale|scende|scodinzola|cambia)\b/i.test(observable)
   if (!hasNaturalVerb) return null
-  const detectorSupport=facts.length?Math.max(...facts.map(item=>Number(item.score)||0)):0,confidence=Math.min(.9,.42+detectorSupport*.35+(frameCount>1?.04:0)+(movements.length?.035:0)+(faceSignals.length?.035:0)+(poseSignals.length?.04:0))
+  const detectorSupport=facts.length?Math.max(...facts.map(item=>Number(item.score)||0)):0,confidence=Math.min(.9,.42+detectorSupport*.35+(frameCount > 1 ? .04 : 0)+(movements.length ? .035 : 0)+(faceSignals.length ? .035 : 0)+(poseSignals.length ? .04 : 0))
   let kind = labels.includes('person') && labels.some((label) => label === 'dog' || label === 'cat')
     ? 'interaction' : labels.includes('person') ? 'human' : labels.some((label) => label === 'dog' || label === 'cat') ? 'dog' : 'object'
   let summary = kind === 'dog' ? observable.replace(/\bsmiles?\b/gi, 'open mouths') : observable
@@ -259,7 +260,7 @@ async function interpretFrameLegacy(jpeg, facts = [], language = 'en', frameCoun
   return { summary, confidence, kind, motionFused, dogVerified, evidence:{frames:frameCount,detector:Number(detectorSupport.toFixed(3)),motion:Boolean(movements.length),face:Boolean(faceSignals.length),pose:Boolean(poseSignals.length)} }
 }
 
-const allowedActions=new Set(['standing','sitting','lying','sleeping','resting','walking','running','jumping','approaching','leaving','following','playing','chasing','sniffing','licking','biting','chewing','eating','drinking','tail_wagging','petting','feeding','facial_gesture','reaching','pointing','waving','touching','hugging','holding','carrying','picking_up','putting_down','throwing','offering','using_object','urinating','defecating','other'])
+const allowedActions=new Set(['standing','sitting','lying','sleeping','resting','crouching','walking','running','jumping','approaching','leaving','following','playing','chasing','sniffing','licking','biting','mouth_contact','chewing','eating','drinking','tail_wagging','petting','feeding','facial_gesture','reaching','pointing','waving','touching','hugging','holding','carrying','picking_up','putting_down','dropping','throwing','offering','using_object','tugging','fetching','sitting_down','standing_up','lying_down','rolling','rubbing','shaking','stretching','scratching','mouth_open','tongue_visible','head_tilt','jumping_on','jumping_off','entering','crossing','climbing','descending','dog_dog_interaction','person_dog_interaction','scene_change','urinating','defecating','other'])
 const highSpecificityActions=new Set(['sleeping','biting','eating','drinking','hugging','urinating','defecating'])
 
 async function callVisionPsy(messages,max_tokens=220){
@@ -272,7 +273,7 @@ async function callVisionPsy(messages,max_tokens=220){
 
 // This later declaration intentionally replaces the original single-caption
 // interpreter while preserving it above as a readable compatibility reference.
-async function interpretFrame(jpeg,facts=[],language='en',frameCount=1){
+async function interpretFrame(jpeg,facts=[],language='en',frameCount=1,trigger=null){
   const italian=language==='it',image=`data:image/jpeg;base64,${jpeg.toString('base64')}`
   const labels=facts.map(item=>item.label).filter(Boolean).slice(0,8),names=facts.map(item=>item.name).filter(Boolean).slice(0,8)
   const movements=facts.filter(item=>item.motionText).map(item=>`${item.name||item.label}: ${item.motionText}`).slice(0,5)
@@ -280,32 +281,33 @@ async function interpretFrame(jpeg,facts=[],language='en',frameCount=1){
   const poseSignals=facts.flatMap(item=>Array.isArray(item.poseCues)?item.poseCues.map(cue=>`${item.name||item.label}: ${cue.text}`):[]).slice(0,4)
   const handSignals=facts.flatMap(item=>Array.isArray(item.handCues)?item.handCues.map(cue=>`${item.name||item.label}: ${cue.text}`):[]).slice(0,3)
   const dogPairHint=labels.filter(label=>label==='dog').length>=2?'Two distinct dogs are tracked. Never describe either dog as a toy or object.':''
-  const grounding=`Tracked candidates: ${labels.join(', ')||'none'}. Names: ${names.join(', ')||'none'}. ${dogPairHint} Measured motion: ${movements.join('; ')||'none'}. Face cues: ${faceSignals.join('; ')||'none'}. Animal pose cues: ${poseSignals.join('; ')||'none'}. Hand-contact cues: ${handSignals.join('; ')||'none'}.`
+  const grounding=`Tracked candidates: ${labels.join(', ')||'none'}. Names: ${names.join(', ')||'none'}. ${dogPairHint} Measured motion is telemetry, not a story event: ${movements.join('; ')||'none'}. Face cues: ${faceSignals.join('; ')||'none'}. Animal pose cues: ${poseSignals.join('; ')||'none'}. Hand-contact cues: ${handSignals.join('; ')||'none'}. Semantic trigger: ${JSON.stringify(trigger||{type:'baseline'})}.`
   const animalLabels=new Set(['bird','cat','dog','horse','sheep','cow','elephant','bear','zebra','giraffe']),hasAnimal=labels.some(label=>animalLabels.has(label)),hasPerson=labels.includes('person'),hasObject=labels.some(label=>label!=='person'&&!animalLabels.has(label))
-  const requestedActions=new Set(['standing','sitting','lying','resting','walking','running','jumping','approaching','leaving','other'])
-  if(hasAnimal)for(const action of ['sleeping','following','playing','chasing','sniffing','licking','biting','chewing','eating','drinking','tail_wagging'])requestedActions.add(action)
+  const requestedActions=new Set(['standing','sitting','lying','resting','crouching','walking','running','jumping','approaching','leaving','sitting_down','standing_up','lying_down','rolling','rubbing','shaking','stretching','scratching','jumping_on','jumping_off','entering','crossing','scene_change','other'])
+  if(hasAnimal)for(const action of ['sleeping','following','playing','chasing','sniffing','licking','biting','mouth_contact','chewing','eating','drinking','tail_wagging','mouth_open','tongue_visible','head_tilt','tugging','fetching','climbing','descending','dog_dog_interaction'])requestedActions.add(action)
   if(hasPerson)for(const action of ['facial_gesture','reaching','pointing','waving','touching','hugging','holding','carrying','picking_up','putting_down','throwing','offering','using_object'])requestedActions.add(action)
-  if(hasPerson&&hasAnimal)for(const action of ['petting','feeding','playing','touching','offering'])requestedActions.add(action)
+  if(hasPerson&&hasAnimal)for(const action of ['petting','feeding','playing','touching','offering','person_dog_interaction'])requestedActions.add(action)
   if(hasObject)for(const action of ['holding','carrying','picking_up','putting_down','throwing','offering','using_object'])requestedActions.add(action)
   if(hasAnimal)for(const action of ['urinating','defecating'])requestedActions.add(action)
   const actionList=[...requestedActions].join('|')
-  const schema=`{"summary":"","context":"","events":[{"action":"${actionList}","actor":"","target":"","detail":"","confidence":0.0}]}`
+  const schema=`{"summary":"","context":{"environment":"unknown","scene":"unknown","surface":"unknown","structures":[],"confidence":0.0},"events":[{"action":"${actionList}","actor":"","target":"","detail":"","confidence":0.0}]}`
   const task=italian
-    ? `Costruisci una timeline essenziale da questa sequenza temporale: ogni colonna mostra la scena sopra e il crop del soggetto sotto, da sinistra a destra. Cerca in modo generale: (1) postura e locomozione di persone o animali; (2) oggetti presi, tenuti, trasportati, posati, lanciati, offerti o usati; (3) interazioni persona-persona, persona-animale, animale-animale e soggetto-oggetto; (4) gesti di mani, testa e viso; (5) annusare, leccare, inseguire, giocare, masticare, mangiare, bere, carezze e alimentazione. Riporta soltanto cambiamenti visibili sostenuti da più fotogrammi. Per dormire, mordere, mangiare, bere, abbracciare, urinare o defecare servono geometria inequivocabile e conferma in almeno due colonne. "Morde" indica solo contatto visibile bocca-oggetto o bocca-soggetto: non dedurre aggressività, intenzioni, identità o emozioni. Il contesto va nominato solo se chiaramente visibile e utile all'azione. Ometti eventi incerti senza commentarli. Scrivi summary e detail in italiano.`
-    : `Build a sparse event timeline from this temporal sequence: each column shows the scene above and a subject crop below, ordered left to right. Look generally for: (1) posture and locomotion of people or animals; (2) objects picked up, held, carried, put down, thrown, offered or used; (3) person-person, person-animal, animal-animal and subject-object interactions; (4) hand, head and facial gestures; (5) sniffing, licking, chasing, play, chewing, eating, drinking, petting and feeding. Report only visible changes supported across multiple frames. Sleeping, biting, eating, drinking, hugging, urinating or defecating require unmistakable geometry confirmed in at least two columns. "Biting" means only visible mouth-to-object or mouth-to-subject contact: do not infer aggression, intent, identity or emotions. Name context only when clearly visible and useful to the action. Silently omit uncertain events.`
+    ? `Costruisci una timeline essenziale dei cambiamenti visibili nella sequenza, non una descrizione dell'ultimo fotogramma. Collega più azioni quando formano un unico evento breve. Cerca postura e transizioni, superfici e ingressi/uscite, oggetti e loro stato, interazioni persona-cane e cane-cane, gesti e azioni specifiche. I movimenti sinistra/destra/alto/basso o verso la camera sono telemetria e non vanno narrati. Un oggetto non rilevato può essere generico soltanto se persiste in più fotogrammi; un nome specifico insolito richiede conferma ripetuta. Dormire, mordere, mangiare, bere, urinare o defecare richiedono geometria inequivocabile in almeno due colonne. Contatto con la bocca non significa aggressività; postura e volto non provano emozioni. Il contesto è un'ipotesi con confidenza: erba non implica automaticamente parco. Ometti eventi incerti. Scrivi summary e detail in italiano.`
+    : `Build a sparse timeline of visible changes across the sequence, not a description of the last frame. Link several actions when they form one meaningful short event. Look for posture transitions, support surfaces and entry/exit, object state, person-dog and dog-dog relations, gestures and specific actions. Camera-relative left/right/up/down/closer motion is telemetry and must not be narrated. An undetected object may stay generic only when it persists across multiple frames; a specific uncommon name needs repeated confirmation. Sleeping, biting, eating, drinking, urinating or defecating require unmistakable geometry in at least two columns. Mouth contact is not aggression and posture or face does not prove emotion. Context is a confidence-bearing hypothesis: grass alone does not imply a park. Silently omit uncertain events.`
   const raw=await callVisionPsy([{role:'user',content:[{type:'image_url',image_url:{url:image}},{type:'text',text:`${task} ${grounding} Return only strict JSON matching: ${schema}`}]}],260)
   const structured=extractJson(raw)
   if(visionpsyDebug)console.log('[VisionPsy structured]',raw)
   if(!structured)return interpretFrameLegacy(jpeg,facts,language,frameCount)
   const detectorSupport=facts.length?Math.max(...facts.map(item=>Number(item.score)||0)):0
-  const events=(Array.isArray(structured.events)?structured.events:[]).map(event=>({action:allowedActions.has(event.action)?event.action:'other',actor:String(event.actor||'').slice(0,60),target:String(event.target||'').slice(0,60),detail:String(event.detail||'').slice(0,180),confidence:Math.max(0,Math.min(1,Number(event.confidence)||0))})).filter(event=>event.detail&&event.confidence>=(highSpecificityActions.has(event.action)?.72:.58)).slice(0,4)
+  const events=(Array.isArray(structured.events)?structured.events:[]).map(event=>({action:allowedActions.has(event.action)?event.action:'other',actor:String(event.actor||'').slice(0,60),target:String(event.target||'').slice(0,60),detail:String(event.detail||'').slice(0,180),confidence:Math.max(0,Math.min(1,Number(event.confidence)||0))})).filter(event=>event.detail&&event.confidence>=(highSpecificityActions.has(event.action) ? .72 : .58)).slice(0,4)
   const proposedSummary=String(structured.summary||'').replace(/\s+/g,' ').trim(),copiedSchema=/^(one factual sentence|una frase|factual sentence|summary)$/i.test(proposedSummary)
   const summary=String(copiedSchema?'':proposedSummary||events[0]?.detail||'').replace(/\s+/g,' ').trim().slice(0,240)
   if(!summary||/\b(cannot|unable|not clear|non posso|non chiaro|incerto|uncertain)\b/i.test(summary))return interpretFrameLegacy(jpeg,facts,language,frameCount)
   const confidence=events.length?Math.max(...events.map(event=>event.confidence)):Math.min(.85,.45+detectorSupport*.3)
   const hasDog=labels.includes('dog'),dogSeen=/\b(dog|dogs|cane|cani|cucciol)\b/i.test(`${summary} ${events.map(event=>`${event.actor} ${event.target}`).join(' ')}`)
   const kind=events.some(event=>['playing','chasing','petting','feeding','biting','hugging','touching','offering'].includes(event.action))?'interaction':events.some(event=>['facial_gesture','reaching','pointing','waving'].includes(event.action))?'human':hasDog?'dog':'object'
-  return {summary,context:String(structured.context||'').slice(0,100),events,confidence,kind,motionFused:false,dogVerified:!hasDog||dogSeen,evidence:{frames:frameCount,detector:Number(detectorSupport.toFixed(3)),motion:Boolean(movements.length),face:Boolean(faceSignals.length),pose:Boolean(poseSignals.length),hands:Boolean(handSignals.length)}}
+  const context=structured.context&&typeof structured.context==='object'?structured.context:String(structured.context||'').slice(0,160)
+  return {summary,context,events,confidence,kind,motionFused:false,dogVerified:!hasDog||dogSeen,trigger,evidence:{frames:frameCount,detector:Number(detectorSupport.toFixed(3)),motion:Boolean(movements.length),face:Boolean(faceSignals.length),pose:Boolean(poseSignals.length),hands:Boolean(handSignals.length)}}
 }
 
 async function summarizeEvents(items=[],language='en'){
@@ -326,6 +328,92 @@ async function summarizeEvents(items=[],language='en'){
   const raw=await callVisionPsy([{role:'user',content:prompt}],180)
   const text=String(extractJson(raw)?.summary||raw).replace(/^```|```$/g,'').trim(),looksLikeData=/^[\[{]/.test(text)||/"title"\s*:|"detail"\s*:/.test(text),addsNegatives=/\b(no other|none of|not present|not observed|nothing else|no interactions?|there (?:was|were|are) no|neutral|nessun altr|non (?:è|sono|si vede|compare)|non ci sono|non presente|eventi osservati|observed video events|video events?|events? indicate)\b/i.test(text)
   return text&&!looksLikeData&&!addsNegatives&&text.length<700?text:deterministic
+}
+
+const narrativeNoiseActions=NOISE_ACTIONS
+const narrativeContinuousActions=new Set(['petting','playing','chasing','sniffing','walking','running','chewing','tail_wagging','resting','sleeping','holding','carrying','following','dog_dog_interaction','person_dog_interaction'])
+
+function normalizeV2Event(input={},defaults={}){
+  const proposedAction=canonicalAction(input.action),start=Math.max(0,Number(input.start??defaults.start??0)||0),end=Math.max(start,Number(input.end??defaults.end??start)||start),confidence=Math.max(0,Math.min(1,Number(input.confidence)||0))
+  if(narrativeNoiseActions.has(proposedAction)||!String(input.description||input.detail||'').trim())return null
+  const action=allowedActions.has(proposedAction)?proposedAction:'other'
+  if(highSpecificityActions.has(action)&&confidence<.72)return null
+  return {id:String(input.id||`final_${Math.random().toString(36).slice(2,10)}`),start,end,actor:String(input.actor||'').slice(0,80)||null,action,target:String(input.target||'').slice(0,100)||null,from:input.from&&typeof input.from==='object'?input.from:null,to:input.to&&typeof input.to==='object'?input.to:null,objects:Array.isArray(input.objects)?input.objects.slice(0,4):[],modifiers:input.modifiers&&typeof input.modifiers==='object'?input.modifiers:{},evidence:input.evidence&&typeof input.evidence==='object'?input.evidence:{},confidence,importance:Math.max(0,Math.min(1,Number(input.importance)||.5)),description:String(input.description||input.detail).replace(/\s+/g,' ').trim().slice(0,260),source:String(input.source||defaults.source||'narrative-v2').slice(0,80),rawIds:Array.isArray(input.rawIds)?input.rawIds.slice(0,30):[]}
+}
+
+function v2EventKey(event){return [event.actor||'unknown',event.action,event.target||'',event.from?.surface||'',event.to?.surface||'',event.objects.map(item=>typeof item==='string'?item:item?.id||item?.label||'').sort().join(',')].join('|')}
+
+function mergeV2Events(items=[]){
+  const events=items.map(item=>normalizeV2Event(item)).filter(Boolean).sort((a,b)=>a.start-b.start||a.end-b.end),merged=[],lastByKey=new Map()
+  for(const event of events){const key=v2EventKey(event),previous=lastByKey.get(key),gap=narrativeContinuousActions.has(event.action)?2.8:1.6;if(previous&&event.start-previous.end<=gap){previous.end=Math.max(previous.end,event.end);previous.confidence=Math.max(previous.confidence,event.confidence);previous.importance=Math.max(previous.importance,event.importance);previous.evidence={...previous.evidence,...event.evidence};previous.rawIds=[...new Set([...previous.rawIds,...event.rawIds])];if(event.description.length>previous.description.length)previous.description=event.description}else{const added={...event};merged.push(added);lastByKey.set(key,added)}}
+  return merged.sort((a,b)=>a.start-b.start)
+}
+
+function deterministicV2Summary(events=[],language='en'){
+  const descriptions=events.map(event=>event.description.replace(/[.!?]+$/,'').trim()).filter(Boolean).slice(0,8)
+  if(!descriptions.length)return null
+  const lower=text=>text?text.charAt(0).toLowerCase()+text.slice(1):text
+  return descriptions.map((description,index)=>index===0?(language==='it'?`Nel video, ${lower(description)}`:`In the video, ${lower(description)}`):index===1?(language==='it'?`Poi ${lower(description)}`:`Then ${lower(description)}`):(language==='it'?`Successivamente ${lower(description)}`:`Later ${lower(description)}`)).join('. ')+'.'
+}
+
+function groundedV2Summary(text,events=[]){
+  if(!text||text.length>=800||/^(?:```|json\b|[\[{])/i.test(text)||/"(?:id|title|detail|events?|action|actor|target|objects?)"\s*:/i.test(text))return false
+  if(/\b(happy|sad|aggressiv|felice|triste|arrabbiat|no other|not observed|non (?:è|sono) stato osservato)\b/i.test(text))return false
+  const evidence=JSON.stringify(events).toLowerCase()
+  const subjects=text.match(/\b(?:dog|cane|cat|gatto|person|persona)\s+\d+\b/gi)||[]
+  if(subjects.some(subject=>!evidence.includes(subject.toLowerCase())))return false
+  const actionTerms={
+    petting:/\b(?:pet(?:s|ted|ting)?|accarezz\w*)\b/i,feeding:/\b(?:feed\w*|nutr\w*|d[àa]\s+da\s+mangiare)\b/i,
+    playing:/\b(?:play\w*|gioc\w*)\b/i,chasing:/\b(?:chas\w*|insegu\w*)\b/i,sniffing:/\b(?:sniff\w*|annus\w*)\b/i,
+    licking:/\b(?:lick\w*|lecc\w*)\b/i,biting:/\b(?:bit(?:e|es|ing)|mord\w*)\b/i,chewing:/\b(?:chew\w*|mastic\w*)\b/i,
+    eating:/\b(?:eat\w*|mangi\w*)\b/i,drinking:/\b(?:drink\w*|bev\w*)\b/i,sleeping:/\b(?:sleep\w*|dorm\w*)\b/i,
+    urinating:/\b(?:urin\w*|pip[iì])\b/i,defecating:/\b(?:defec\w*|cacca)\b/i,fetching:/\b(?:fetch\w*|riport\w*)\b/i,
+    tugging:/\b(?:tug\w*|trazion\w*)\b/i,tail_wagging:/\b(?:wag\w*|scodinzol\w*)\b/i
+  }
+  const actions=new Set(events.map(event=>event.action))
+  return !Object.entries(actionTerms).some(([action,pattern])=>pattern.test(text)&&!actions.has(action))
+}
+
+function selectV2StoryEvents(items=[],sessionDuration=0,maxEvents=8){
+  const events=mergeV2Events(items).filter(event=>event.confidence>=.48),duration=sessionDuration||Math.max(...events.map(event=>event.end),1)
+  if(!events.length)return []
+  const scored=events.map(event=>{const span=Math.min(1,Math.max(0,event.end-event.start)/6),continuous=narrativeContinuousActions.has(event.action)?span*.06:0;return {...event,_score:event.importance*.5+event.confidence*.36+continuous+.08}}),bins=[[],[],[],[]],chosen=[],ids=new Set()
+  for(const event of scored){const midpoint=(event.start+event.end)/2,index=Math.min(3,Math.floor(midpoint/Math.max(duration,.001)*4));bins[index].push(event)}
+  for(const bin of bins){const best=bin.sort((a,b)=>b._score-a._score)[0];if(best){chosen.push(best);ids.add(best.id)}}
+  for(const event of [...scored].sort((a,b)=>b._score-a._score)){if(chosen.length>=maxEvents)break;if(!ids.has(event.id)){chosen.push(event);ids.add(event.id)}}
+  return chosen.sort((a,b)=>a.start-b.start).map(({_score,...event})=>event)
+}
+
+async function summarizeV2Events(items=[],language='en',context={},sessionDuration=0){
+  const events=selectV2StoryEvents(items,sessionDuration,8),deterministic=deterministicV2Summary(events,language)
+  if(!events.length)return null
+  const facts=events.map(({id,start,end,actor,action,target,from,to,objects,confidence,description})=>({id,start,end,actor,action,target,from,to,objects,confidence,description}))
+  const prompt=language==='it'
+    ? `Sei soltanto il realizzatore linguistico di una storia video. Scrivi un paragrafo breve, concreto e cronologico usando esclusivamente gli eventi JSON forniti. Conserva attore, azione, oggetto, superfici e ordine temporale. Puoi unire eventi continui ma non aggiungere emozioni, intenzioni, cause, oggetti o azioni assenti. Non menzionare detector, confidenza o dati mancanti. Contesto ipotetico (usalo solo se non contraddice gli eventi): ${JSON.stringify(context)}. Eventi: ${JSON.stringify(facts)}`
+    : `You are only the language realizer for a video story. Write one short, concrete chronological paragraph using exclusively the supplied JSON events. Preserve actor, action, object, surfaces and temporal order. You may combine continuous events but must not add emotions, intent, causes, objects or actions absent from the events. Do not mention detectors, confidence or missing data. Hypothetical context (use only if consistent with events): ${JSON.stringify(context)}. Events: ${JSON.stringify(facts)}`
+  try{const raw=await callVisionPsy([{role:'user',content:prompt}],220),text=String(extractJson(raw)?.summary||raw).replace(/^```(?:json)?|```$/gi,'').trim();return groundedV2Summary(text,events)?text:deterministic}catch{return deterministic}
+}
+
+async function reviewEvidenceSequence(sequence,candidates=[],language='en'){
+  if(!sequence?.image||!/^data:image\/jpeg;base64,/.test(sequence.image))return null
+  const schema='{"confidence":0.0,"confirmedIds":[],"rejectedIds":[],"events":[{"action":"allowed action","actor":"","target":"","detail":"","confidence":0.0}],"context":{"environment":"unknown","scene":"unknown","surface":"unknown","structures":[],"confidence":0.0}}'
+  const prompt=language==='it'
+    ? `Revisione finale limitata di una sequenza temporale. Conferma o respingi gli eventi candidati soltanto se l'evidenza visiva li supporta. Puoi proporre un nuovo evento solo se è chiaramente visibile attraverso più fotogrammi; mai movimento relativo alla camera. Azioni ad alta specificità richiedono evidenza inequivocabile. Contatto con la bocca non è aggressività; erba non implica parco. Candidati: ${JSON.stringify(candidates)}. Restituisci solo JSON: ${schema}`
+    : `Bounded final review of a temporal sequence. Confirm or reject candidate events only when supported by the visual evidence. Propose a new event only when it is clearly visible across multiple frames; never report camera-relative movement. High-specificity actions require unmistakable evidence. Mouth contact is not aggression and grass does not imply a park. Candidates: ${JSON.stringify(candidates)}. Return only JSON: ${schema}`
+  try{const raw=await callVisionPsy([{role:'user',content:[{type:'image_url',image_url:{url:sequence.image}},{type:'text',text:prompt}]}],260),parsed=extractJson(raw);return parsed?{...parsed,raw}:null}catch{return null}
+}
+
+async function finalizeV2Session(input={}){
+  let events=mergeV2Events(Array.isArray(input.events)?input.events:[]),context=input.context&&typeof input.context==='object'?input.context:{},reviews=[]
+  for(const sequence of (Array.isArray(input.evidenceSequences)?input.evidenceSequences:[]).slice(0,4)){
+    const at=Number(sequence.at)||0,candidates=events.filter(event=>event.start<=at+5&&event.end>=at-5).map(event=>({id:event.id,start:event.start,end:event.end,actor:event.actor,action:event.action,target:event.target,description:event.description,confidence:event.confidence})),review=await reviewEvidenceSequence(sequence,candidates,input.language==='it'?'it':'en')
+    if(!review)continue;reviews.push({at,confidence:Number(review.confidence)||0,confirmedIds:Array.isArray(review.confirmedIds)?review.confirmedIds:[],rejectedIds:Array.isArray(review.rejectedIds)?review.rejectedIds:[],raw:review.raw})
+    const confidence=Math.max(0,Math.min(1,Number(review.confidence)||0));if(confidence>=.72){const confirmed=new Set(review.confirmedIds||[]),rejected=new Set(review.rejectedIds||[]);events=events.map(event=>confirmed.has(event.id)?{...event,confidence:Math.min(1,event.confidence+.04),evidence:{...event.evidence,finalReview:true}}:rejected.has(event.id)&&confidence>=.82?{...event,confidence:event.confidence*.72,evidence:{...event.evidence,finalRejected:true}}:event)}
+    for(const proposed of (Array.isArray(review.events)?review.events:[]).slice(0,3)){const threshold=highSpecificityActions.has(proposed.action) ? .82 : .72,normalized=normalizeV2Event({...proposed,start:Math.max(0,at-1.5),end:at+1.5,source:'final-visionpsy',importance:.7,evidence:{finalSequenceAt:at,frames:3}},{start:Math.max(0,at-1.5),end:at+1.5,source:'final-visionpsy'});if(normalized&&normalized.confidence>=threshold)events.push(normalized)}
+    if(review.context&&typeof review.context==='object'&&Number(review.context.confidence)>=.75)context={...context,...review.context}
+  }
+  events=mergeV2Events(events).filter(event=>event.confidence>=.48);const summary=await summarizeV2Events(events,input.language==='it'?'it':'en',context,Number(input.sessionDuration)||0)
+  return {version:2,events,summary,context,reviews}
 }
 
 const server = http.createServer(async (req, res) => {
@@ -363,18 +451,31 @@ const server = http.createServer(async (req, res) => {
       const jpeg = await readBody(req)
       let facts = []
       try { facts = JSON.parse(String(req.headers['x-vision-facts'] || '[]')) } catch {}
+      let trigger = null
+      try { trigger = JSON.parse(String(req.headers['x-narrative-trigger'] || 'null')) } catch {}
       const language = req.headers['x-language'] === 'it' ? 'it' : 'en'
       const frameCount = Math.max(1,Math.min(3,Number(req.headers['x-frame-count'])||1))
-      const observation = await interpretFrame(jpeg, Array.isArray(facts) ? facts : [], language, frameCount)
+      const observation = await interpretFrame(jpeg, Array.isArray(facts) ? facts : [], language, frameCount, trigger)
       return json(res, observation ? 200 : 422, observation || { error: 'No structured observation' })
     }
     if (req.method === 'POST' && url.pathname === '/api/session-summary') {
-      if (!visionpsyReady && !(await ensureVisionPsy())) return json(res,503,{error:'VisionPsy local endpoint not ready'})
       const body=await readBody(req,600_000)
       let input={}
       try{input=JSON.parse(body.toString('utf8'))}catch{return json(res,400,{error:'invalid JSON'})}
+      if(input.version===2||Array.isArray(input.events)&&input.events.some(event=>event&&event.action)){
+        const summary=await summarizeV2Events(Array.isArray(input.events)?input.events:[],input.language==='it'?'it':'en',input.context||{},Number(input.sessionDuration)||0)
+        return json(res,summary?200:422,summary?{version:2,summary}:{error:'No grounded Narrative V2 events'})
+      }
+      if (!visionpsyReady && !(await ensureVisionPsy())) return json(res,503,{error:'VisionPsy local endpoint not ready'})
       const summary=await summarizeEvents(Array.isArray(input.events)?input.events:[],input.language==='it'?'it':'en')
       return json(res,summary?200:422,summary?{summary}:{error:'No grounded summary'})
+    }
+    if (req.method === 'POST' && url.pathname === '/api/finalize-session') {
+      const body=await readBody(req,8_000_000)
+      let input={}
+      try{input=JSON.parse(body.toString('utf8'))}catch{return json(res,400,{error:'invalid JSON'})}
+      const result=await finalizeV2Session(input)
+      return json(res,200,result)
     }
     if (req.method === 'POST' && url.pathname === '/api/youtube/resolve') {
       const body=await readBody(req,20_000)
@@ -395,7 +496,7 @@ const server = http.createServer(async (req, res) => {
       const asset = mediaPipeAssets.get(url.pathname)
       if(asset){if(!fs.existsSync(asset))return json(res,404,{error:'asset not installed'});res.writeHead(200,{'content-type':types[path.extname(asset)]||'application/octet-stream','cache-control':'public, max-age=3600'});return fs.createReadStream(asset).pipe(res)}
       const requested = url.pathname === '/' ? 'index.html' : url.pathname.slice(1)
-      if (!['index.html', 'styles.css', 'app.js'].includes(requested)) return json(res, 404, { error: 'not found' })
+      if (!['index.html', 'styles.css', 'app.js', 'narrative-engine-v2.js'].includes(requested)) return json(res, 404, { error: 'not found' })
       const file = path.join(publicDir, requested)
       res.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream' })
       return fs.createReadStream(file).pipe(res)
