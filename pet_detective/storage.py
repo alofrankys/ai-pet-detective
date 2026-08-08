@@ -15,6 +15,13 @@ class EventStore:
             kind TEXT, started_at TEXT, ended_at TEXT, payload TEXT)""")
         self.db.execute("""CREATE TABLE IF NOT EXISTS track_samples (id INTEGER PRIMARY KEY, session_id TEXT,
             dog_id TEXT, track_id INTEGER, captured_at TEXT, x REAL, y REAL)""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY,
+            pixels_per_metre REAL)""")
+        self.db.commit()
+
+    def configure_session(self, session_id: str, pixels_per_metre: float | None) -> None:
+        self.db.execute("INSERT OR IGNORE INTO sessions(session_id,pixels_per_metre) VALUES(?,?)",
+                        (session_id, pixels_per_metre))
         self.db.commit()
 
     def add_samples(self, session_id: str, tracks: list[Track], at: datetime) -> None:
@@ -29,6 +36,8 @@ class EventStore:
         self.db.commit()
 
     def report(self, session_id: str) -> dict:
+        setting = self.db.execute("SELECT pixels_per_metre FROM sessions WHERE session_id=?", (session_id,)).fetchone()
+        pixels_per_metre = setting[0] if setting else None
         rows = self.db.execute("SELECT dog_id,kind,started_at,ended_at,payload FROM events WHERE session_id=?", (session_id,)).fetchall()
         dogs, interactions, observations = {}, 0, []
         for dog, kind, start, end, payload in rows:
@@ -46,5 +55,8 @@ class EventStore:
         for dog, states in dogs.items():
             dogs[dog] = {kind: round(seconds, 1) for kind, seconds in states.items()}
             dogs[dog]["distance_px"] = round(distances.get(dog, 0.0), 1)
+            if pixels_per_metre:
+                dogs[dog]["distance_m"] = round(distances.get(dog, 0.0) / pixels_per_metre, 2)
         return {"session_id": session_id, "dogs": dogs, "play_interactions": interactions,
-                "qvac_observations": observations, "event_count": len(rows)}
+                "qvac_observations": observations, "event_count": len(rows),
+                "calibrated": bool(pixels_per_metre)}

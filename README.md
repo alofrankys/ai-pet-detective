@@ -40,6 +40,42 @@ runs on every frame. Optional QVAC vision is triggered at activity changes,
 with the selected interval acting only as a safety check during long,
 unchanging scenes.
 
+## VisionPsy Live Studio
+
+The polished recording interface lives in `qvac-worker/`. It keeps the same
+analysis and timeline for three interchangeable sources: the Mac camera, a
+video selected with the native file picker, or a public YouTube recording
+resolved from its URL. YouTube media is proxied through the local server so the
+frames remain available to the detector instead of being trapped in a
+cross-origin embed.
+
+```bash
+pip install -e '.[youtube]'
+cd qvac-worker
+npm install
+npm run setup:models
+npm run studio
+```
+
+Open `http://127.0.0.1:8790`. The studio combines YOLOv10m on `@qvac/onnx`, an
+appearance-assisted tracker, RTMPose AP-10K dog keypoints, local MediaPipe face
+and hand cues, and the existing local VisionPsy endpoint. VisionPsy receives a
+short chronological evidence sheet and grounded detector facts. The UI retains
+the full session history and creates a final narrative popup when a recording
+ends.
+
+The narrative vocabulary covers visible posture and locomotion, object
+manipulation, person-person, person-animal, animal-animal and subject-object
+interactions, plus conservative hand and facial gestures. Specific claims such
+as biting, eating, drinking, sleeping, urinating and defecating require stronger
+multi-frame evidence. The application does not turn body language into a
+certain emotion or infer aggression from mouth contact.
+
+On macOS, QVAC requests Core ML for the detector and animal pose models. The
+studio continues with deterministic detection and tracking if the semantic
+endpoint is temporarily unavailable. Model files and local runtime data are
+excluded from Git.
+
 ## Real video or camera
 
 ```bash
@@ -47,6 +83,18 @@ petdetective analyze --source /path/to/dogs.mp4 --session morning-01
 # or
 petdetective analyze --source 0 --session living-room-live
 ```
+
+Copy `config/dogs.example.json` to `config/dogs.json` to configure stable dog
+names, a normalized sofa zone and an optional measured pixel-to-metre
+calibration:
+
+```bash
+petdetective --config config/dogs.json analyze --source /path/to/dogs.mp4 --session morning-01
+```
+
+`pixels_per_metre` stays unset until it is measured for the specific camera.
+Reports always include `distance_px`; calibrated sessions also include
+`distance_m` and `calibrated: true`.
 
 ### YouTube
 

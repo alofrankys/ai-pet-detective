@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64, json, os
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
@@ -16,12 +17,18 @@ class QvacVision:
 
     def analyse(self, image_path: str) -> dict | None:
         if not self.enabled: return None
-        encoded = base64.b64encode(Path(image_path).read_bytes()).decode()
+        try:
+            encoded = base64.b64encode(Path(image_path).read_bytes()).decode()
+        except OSError:
+            return None
         prompt = "Return only JSON with activity, description, confidence (0..1). Describe the dogs' observable activity; do not infer health or breed."
         body = {"model": self.model, "messages": [{"role": "user", "content": [
             {"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}}]}]}
         request = Request(self.endpoint, data=json.dumps(body).encode(), headers={"Content-Type":"application/json"})
-        with urlopen(request, timeout=30) as response:
-            content = json.load(response)["choices"][0]["message"]["content"]
+        try:
+            with urlopen(request, timeout=30) as response:
+                content = json.load(response)["choices"][0]["message"]["content"]
+        except (HTTPError, URLError, OSError, ValueError, KeyError, IndexError, TypeError):
+            return None
         try: return json.loads(content)
         except json.JSONDecodeError: return {"activity": "unstructured", "description": content, "confidence": None}

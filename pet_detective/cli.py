@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse, json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from .config import load_config
 from .models import Detection
 from .pipeline import PetPipeline
 from .storage import EventStore
@@ -10,7 +11,8 @@ from .video import analyse_video
 
 
 def demo(args):
-    pipe = PetPipeline(EventStore(args.db))
+    config = load_config(args.config)
+    pipe = PetPipeline(EventStore(args.db), config.dog_ids, config.sofa, config.pixels_per_metre)
     start = datetime.now(timezone.utc)
     for second in range(90):
         # Two paths: rest, walk, then a short close interaction.
@@ -38,7 +40,9 @@ def dashboard(args):
 
 def analyze(args):
     store = EventStore(args.db)
-    result = analyse_video(args.source, args.session, PetPipeline(store), args.qvac, args.semantic_every,
+    config = load_config(args.config)
+    pipeline = PetPipeline(store, config.dog_ids, config.sofa, config.pixels_per_metre)
+    result = analyse_video(args.source, args.session, pipeline, args.qvac, args.semantic_every,
                            args.detector, args.detector_endpoint)
     save_report(result); print(json.dumps(result, indent=2))
 
@@ -46,6 +50,7 @@ def analyze(args):
 def main():
     parser = argparse.ArgumentParser(prog="petdetective")
     parser.add_argument("--db", default="data/pet_detective.db")
+    parser.add_argument("--config", help="Local JSON configuration for dog identities, zones and calibration")
     sub = parser.add_subparsers(required=True)
     p = sub.add_parser("demo"); p.add_argument("--session", default="demo-session"); p.set_defaults(func=demo)
     p = sub.add_parser("report"); p.add_argument("--session", required=True); p.set_defaults(func=report)
