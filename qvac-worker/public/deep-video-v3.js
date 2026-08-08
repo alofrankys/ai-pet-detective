@@ -17,7 +17,7 @@ const PIPE_ACTION_LIST=new RegExp(`${ACTION_TOKEN}\\s*\\|\\s*${ACTION_TOKEN}`,'i
 export function isVisionSchemaEcho(value){
   const text=String(value||'').trim()
   if(!text)return false
-  return PIPE_ACTION_LIST.test(text)||/<\/?(?:action|actor|placeholder)>|\b(?:schema|template|placeholder|example json)\b/i.test(text)||/"action"\s*:\s*"(?:observed_action|allowed action|action_name|\.\.\.)"/i.test(text)||/"evidence"\s*:\s*\[\s*"(?:short observable reason|observable evidence|\.\.\.)"\s*\]/i.test(text)
+  return PIPE_ACTION_LIST.test(text)||/<\/?(?:action|actor|placeholder)>|\b(?:schema|template|placeholder|example json)\b/i.test(text)||/"action"\s*:\s*"(?:observed_action|allowed action|action_name|\.\.\.)"/i.test(text)||/"evidence"\s*:\s*\[\s*"(?:short observable reason|observable evidence|\.\.\.)"\s*\]/i.test(text)||/"confidence"\s*:\s*0\.82[\s\S]*"description"\s*:\s*"A person repeatedly strokes subject_1\."/i.test(text)
 }
 
 export function cleanNaturalLanguageObservation(value){
@@ -114,13 +114,13 @@ export function compensateSubjectMotionV3(observed={},camera={}){const valid=Num
 
 const SURFACE_LABELS=new Set(['couch','bed','chair','bench','dining table'])
 export class PersistentSurfaceMap{
-  constructor({confirmFrames=4,switchMargin=.22,relationFrames=3,relationSeconds=.35}={}){Object.assign(this,{confirmFrames,switchMargin,relationFrames,relationSeconds});this.entities=new Map();this.relations=new Map();this.nextId=1}
+  constructor({confirmFrames=4,switchMargin=.22,relationFrames=3,relationSeconds=.35,cooldownSeconds=1.25}={}){Object.assign(this,{confirmFrames,switchMargin,relationFrames,relationSeconds,cooldownSeconds});this.entities=new Map();this.relations=new Map();this.nextId=1}
   updateDetections(detections,time){
     for(const detection of detections.filter(item=>SURFACE_LABELS.has(item.label))){let entity=[...this.entities.values()].filter(item=>time-item.lastSeen<8).sort((a,b)=>iou(b.box,detection.box)-iou(a.box,detection.box))[0];if(!entity||iou(entity.box,detection.box)<.28){entity={surface_id:`surface_${this.nextId++}`,box:[...detection.box],type_probs:{},stable_type:'furniture_surface',pending_type:null,stableFrames:0,geometry_history:[],lastSeen:time};this.entities.set(entity.surface_id,entity)}
       for(const label of Object.keys(entity.type_probs))entity.type_probs[label]*=.92;entity.type_probs[detection.label]=(entity.type_probs[detection.label]||0)+clamp(detection.score||.5);entity.box=entity.box.map((value,index)=>value*.72+detection.box[index]*.28);entity.lastSeen=time;entity.geometry_history.push({time,box:[...detection.box],label:detection.label,confidence:detection.score});if(entity.geometry_history.length>40)entity.geometry_history.shift()
-      const ranked=Object.entries(entity.type_probs).sort((a,b)=>b[1]-a[1]),runner=ranked[1]?.[1]||0,total=ranked.reduce((sum,item)=>sum+item[1],0)||1,topShare=(ranked[0]?.[1]||0)/total,ambiguousCouchBed=new Set(ranked.slice(0,2).map(item=>item[0])).size===2&&['couch','bed'].every(label=>ranked.slice(0,2).some(item=>item[0]===label))&&runner/(ranked[0]?.[1]||1)>.32,candidate=ambiguousCouchBed||topShare<.7?'furniture_surface':ranked[0]?.[0]||'furniture_surface'
+      const ranked=Object.entries(entity.type_probs).sort((a,b)=>b[1]-a[1]),runner=ranked[1]?.[1]||0,total=ranked.reduce((sum,item)=>sum+item[1],0)||1,top=ranked[0]?.[0],topShare=(ranked[0]?.[1]||0)/total,ambiguous=runner/(ranked[0]?.[1]||1)>.25,requiredShare=top==='bed'?.86:top==='chair'?.78:.74,candidate=ambiguous||topShare<requiredShare?'furniture_surface':top||'furniture_surface'
       if(candidate===entity.stable_type){entity.pending_type=null;entity.stableFrames=0}
-      else if((ranked[0][1]-runner)/total>=this.switchMargin){if(entity.pending_type===candidate)entity.stableFrames++;else{entity.pending_type=candidate;entity.stableFrames=1}if(entity.stableFrames>=this.confirmFrames){entity.stable_type=candidate;entity.pending_type=null;entity.stableFrames=0}}
+      else if(candidate==='furniture_surface'||(ranked[0][1]-runner)/total>=this.switchMargin){if(entity.pending_type===candidate)entity.stableFrames++;else{entity.pending_type=candidate;entity.stableFrames=1}if(entity.stableFrames>=this.confirmFrames){entity.stable_type=candidate;entity.pending_type=null;entity.stableFrames=0}}
       else{entity.pending_type=null;entity.stableFrames=0}
     }
     return this.snapshot()
@@ -132,11 +132,19 @@ export class PersistentSurfaceMap{
     if(candidate!==state.pending){state.pending=candidate;state.frames=1;state.pendingSince=time;this.relations.set(subject.subject_id,state);return null}
     state.frames++;if(state.frames<this.relationFrames||time-state.pendingSince<this.relationSeconds){this.relations.set(subject.subject_id,state);return null}
     const previous=state.stable,confirmationFrames=state.frames;state.stable=candidate;state.since=state.pendingSince;state.pending=null;state.frames=0;this.relations.set(subject.subject_id,state);if(!previous)return null
-    const fromEntity=previous.startsWith('on:')?this.entities.get(previous.slice(3)):null,toEntity=candidate.startsWith('on:')?this.entities.get(candidate.slice(3)):null,action=fromEntity&&!toEntity?'jumping_off':!fromEntity&&toEntity?'jumping_on':'scene_change'
-    return {id:`surface_${subject.subject_id}_${Math.round(time*1000)}`,start:state.pendingSince,end:time,actor:subject.subject_id,action,from:{surface:fromEntity?.stable_type||previous,surface_id:fromEntity?.surface_id||null},to:{surface:toEntity?.stable_type||candidate,surface_id:toEntity?.surface_id||null},confidence:clamp(.62+Math.min(.24,confirmationFrames*.06)),description:`${subject.subject_id} changes support from ${fromEntity?.stable_type||previous} to ${toEntity?.stable_type||candidate}.`,source:'surface-v3'}
+    const fromEntity=previous.startsWith('on:')?this.entities.get(previous.slice(3)):null,toEntity=candidate.startsWith('on:')?this.entities.get(candidate.slice(3)):null
+    if((fromEntity&&toEntity)||(!fromEntity&&!toEntity)||time-Number(state.lastEventAt??-Infinity)<this.cooldownSeconds)return null
+    const action=fromEntity?'jumping_off':'jumping_on',from={surface:fromEntity?.stable_type||'floor',surface_id:fromEntity?.surface_id||null},to={surface:toEntity?.stable_type||'floor',surface_id:toEntity?.surface_id||null};if(from.surface_id&&to.surface_id&&from.surface_id===to.surface_id)return null
+    state.lastEventAt=time;return {id:`surface_${subject.subject_id}_${Math.round(time*1000)}`,start:state.pendingSince,end:time,actor:subject.subject_id,action,from,to,confidence:clamp(.62+Math.min(.24,confirmationFrames*.06)),importance:.7,description:`${subject.subject_id} changes support from ${from.surface} to ${to.surface}.`,source:'surface-v3'}
   }
   snapshot(){return [...this.entities.values()].map(entity=>({...entity,type_probs:{...entity.type_probs},geometry_history:[...entity.geometry_history]}))}
   reset(){this.entities.clear();this.relations.clear();this.nextId=1}
+}
+
+export class PersistentHandDogRelations{
+  constructor({confirmFrames=3,confirmSeconds=.3,maxGapSeconds=.5,minTravel=.008,cooldownSeconds=1.2}={}){Object.assign(this,{confirmFrames,confirmSeconds,maxGapSeconds,minTravel,cooldownSeconds});this.states=new Map()}
+  update({subjectId,time,contact=false,handPoints=[]}={}){if(!subjectId)return {active:false,event:null};const points=handPoints.flat().filter(point=>Number.isFinite(point?.x)&&Number.isFinite(point?.y)),centroid=points.length?{x:points.reduce((sum,point)=>sum+point.x,0)/points.length,y:points.reduce((sum,point)=>sum+point.y,0)/points.length}:null,state=this.states.get(subjectId)||{frames:0,start:time,last:time,travel:0,lastCentroid:null,lastEventAt:-Infinity,active:false};if(!contact||time-state.last>this.maxGapSeconds){state.frames=0;state.start=time;state.travel=0;state.active=false;state.lastCentroid=null}if(contact){if(!state.frames)state.start=time;state.frames++;if(centroid&&state.lastCentroid)state.travel+=distance(centroid,state.lastCentroid);state.lastCentroid=centroid;state.last=time;state.active=state.frames>=this.confirmFrames&&time-state.start>=this.confirmSeconds&&state.travel>=this.minTravel;let event=null;if(state.active&&time-state.lastEventAt>=this.cooldownSeconds){state.lastEventAt=time;event=makeEvent({id:`hand_${subjectId}_${Math.round(time*1000)}`,start:state.start,end:time,actor:subjectId,action:'petting',target:'person_1',confidence:.74,importance:.92,description:`A person repeatedly strokes ${subjectId}.`,source:'relation-v3',evidence:{hand_contact_frames:state.frames,hand_travel:state.travel}})}this.states.set(subjectId,state);return {active:state.active,event}}state.last=time;this.states.set(subjectId,state);return {active:false,event:null}}
+  reset(){this.states.clear()}
 }
 
 export function classifyPosture(points=[]){
@@ -168,21 +176,31 @@ export function generateCandidateIntervals(observations=[],duration=0,{coverageS
   for(let index=1;index<observations.length;index++){const previous=observations[index-1],current=observations[index],reasons=[],subjects=[]
     if(current.events?.length){reasons.push(...current.events.map(event=>event.action));subjects.push(...current.events.map(event=>event.actor).filter(Boolean))}
     if(current.identity_decisions?.some(item=>['revived','uncertain'].includes(item.identity_decision)))reasons.push('identity_discontinuity')
+    const persistentHands=current.relations?.filter(item=>item.type==='hand_dog'&&item.persistent)||[];if(persistentHands.length){reasons.push('petting_signal');subjects.push(...persistentHands.map(item=>item.first).filter(Boolean))}
     if(current.relations?.some(item=>item.changed))reasons.push('relationship_change')
     if(current.object_candidates?.some(item=>item.new||item.mouth_proximity))reasons.push('object_interaction')
     const motion=current.subjects?.filter(item=>Number(item.world_motion?.magnitude||0)>.035)||[];if(motion.length){reasons.push('world_motion');subjects.push(...motion.map(item=>item.subject_id).filter(Boolean))}
-    if(reasons.length)candidates.push({id:`candidate_${index}`,start:Math.max(0,previous.time-.6),end:Math.min(duration||current.time,current.time+.9),reasons,subjects,salience:reasons.includes('object_interaction')||reasons.includes('relationship_change') ? .9 : .65})
+    if(reasons.length){const highRelation=reasons.includes('object_interaction')||reasons.includes('relationship_change'),salience=reasons.includes('petting_signal') ? .98 : (highRelation ? .9 : .65);candidates.push({id:`candidate_${index}`,start:Math.max(0,previous.time-.6),end:Math.min(duration||current.time,current.time+.9),reasons,subjects,salience})}
   }
   for(let at=0;at<duration;at+=coverageSeconds)candidates.push({id:`coverage_${Math.round(at)}`,start:at,end:Math.min(duration,at+Math.min(5,coverageSeconds*.45)),reasons:['temporal_coverage'],subjects:[],salience:.35})
   return mergeCandidateIntervals(candidates)
 }
 
+export function parseVisionStructuredPayload(value){
+  if(value&&typeof value==='object'){if(Array.isArray(value))return {events:value};if(Array.isArray(value.events))return value;if(value.action)return {events:[value]};return null}
+  const raw=String(value||'').trim();if(!raw||isVisionSchemaEcho(raw))return null
+  const normalized=raw.replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/^```(?:json)?\s*|\s*```$/gi,'').trim(),starts=[normalized.indexOf('{'),normalized.indexOf('[')].filter(index=>index>=0).sort((a,b)=>a-b)
+  for(const start of starts){const opener=normalized[start],closer=opener==='{'?'}':']',end=normalized.lastIndexOf(closer);if(end<=start)continue;let candidate=normalized.slice(start,end+1).replace(/,\s*([}\]])/g,'$1');const attempts=[candidate,candidate.replace(/([{,]\s*)'([^'\\]+)'\s*:/g,'$1"$2":').replace(/:\s*'([^'\\]*)'\s*([,}\]])/g,':"$1"$2')];for(const attempt of attempts){try{const parsed=JSON.parse(attempt);if(Array.isArray(parsed))return {events:parsed};if(Array.isArray(parsed?.events))return parsed;if(parsed&&typeof parsed==='object'&&parsed.action)return {events:[parsed]}}catch{}}
+  }
+  return null
+}
+
 export function validateStructuredVision(value,{interval={start:0,end:0},knownSubjects=[]}={}){
   if(typeof value==='string'&&isVisionSchemaEcho(value))return {valid:false,events:[],context:null,errors:['schema_echo_or_template']}
-  const parsed=typeof value==='string'?(()=>{try{const cleaned=value.replace(/^```(?:json)?\s*|\s*```$/gi,'').trim(),start=cleaned.indexOf('{'),end=cleaned.lastIndexOf('}');return JSON.parse(cleaned.slice(start,end+1))}catch{return null}})():value
+  const parsed=parseVisionStructuredPayload(value)
   if(!parsed||!Array.isArray(parsed.events))return {valid:false,events:[],context:null,errors:['invalid_json_or_schema']}
   const errors=[],events=[]
-  for(const raw of parsed.events){const rawAction=String(raw.action||'').trim();if(isVisionSchemaEcho(JSON.stringify(raw))||PIPE_ACTION_LIST.test(rawAction)||!ALL_V3_ACTIONS.has(canonicalAction(rawAction))){errors.push(`unsupported_or_template_action:${raw.action}`);continue}const action=canonicalAction(rawAction),actor=String(raw.actor_ref||'').trim();if(actor&&knownSubjects.length&&!knownSubjects.includes(actor)&&!/^person_\d+$/.test(actor)){errors.push(`unknown_actor:${actor}`);continue}const confidence=clamp(raw.confidence);if(V3_HIGH_SPECIFICITY.has(action)&&confidence<.82){errors.push(`low_specificity_confidence:${action}`);continue}const observation=cleanNaturalLanguageObservation(raw.description||raw.evidence?.[0]||'');if((raw.description||raw.evidence?.length)&&!observation){errors.push(`invalid_observation:${action}`);continue}const start=Math.max(interval.start,Number(raw.start)||interval.start),end=Math.min(interval.end||Infinity,Math.max(start,Number(raw.end)||start));events.push(makeEvent({id:raw.id,actor,action,target:raw.target_ref||null,start,end,from:raw.surface_before?{surface:raw.surface_before}:null,to:raw.surface_after?{surface:raw.surface_after}:null,objects:raw.object_label?[{label:raw.object_label}]:[],confidence,importance:Math.min(1,(raw.importance??confidence)+.08),description:observation||`${actor||'subject'} ${action.replaceAll('_',' ')}`,source:'visionpsy-v3',evidence:{reasons:Array.isArray(raw.evidence)?raw.evidence.map(cleanNaturalLanguageObservation).filter(Boolean):[]}}))}
+  for(const raw of parsed.events){if(!raw||typeof raw!=='object')continue;const rawAction=String(raw.action||'').trim().toLowerCase().replace(/[\s-]+/g,'_');if(isVisionSchemaEcho(JSON.stringify(raw))||PIPE_ACTION_LIST.test(rawAction)||!ALL_V3_ACTIONS.has(canonicalAction(rawAction))){errors.push(`unsupported_or_template_action:${raw.action}`);continue}const action=canonicalAction(rawAction),actor=String(raw.actor_ref||raw.actor||raw.subject||'').trim();if(!actor){errors.push('missing_actor');continue}if(knownSubjects.length&&!knownSubjects.includes(actor)&&!/^person_\d+$/.test(actor)){errors.push(`unknown_actor:${actor}`);continue}const hasConfidence=raw.confidence!==undefined&&raw.confidence!==null&&raw.confidence!=='',confidence=hasConfidence?clamp(raw.confidence):(V3_HIGH_SPECIFICITY.has(action)?0:.68);if(V3_HIGH_SPECIFICITY.has(action)&&confidence<.82){errors.push(`low_specificity_confidence:${action}`);continue}const suppliedDescription=raw.description??raw.detail??raw.evidence?.[0]??'',observation=cleanNaturalLanguageObservation(suppliedDescription);if(suppliedDescription&&!observation){errors.push(`invalid_observation:${action}`);continue}const hasStart=Number.isFinite(Number(raw.start)),hasEnd=Number.isFinite(Number(raw.end)),start=Math.max(interval.start,hasStart?Number(raw.start):interval.start),end=Math.min(interval.end||Infinity,Math.max(start,hasEnd?Number(raw.end):interval.end||start)),objectValue=raw.object_label??raw.object,objects=objectValue?[typeof objectValue==='string'?{label:objectValue}:objectValue]:[];events.push(makeEvent({id:raw.id,actor,action,target:raw.target_ref??raw.target??null,start,end,from:raw.surface_before?{surface:raw.surface_before}:null,to:raw.surface_after?{surface:raw.surface_after}:null,objects,confidence,importance:Math.min(1,(raw.importance??confidence)+.08),description:observation||`${actor} ${action.replaceAll('_',' ')}.`,source:'visionpsy-v3',evidence:{reasons:Array.isArray(raw.evidence)?raw.evidence.map(cleanNaturalLanguageObservation).filter(Boolean):[]}}))}
   return {valid:errors.length===0||events.length>0,events,context:parsed.context&&typeof parsed.context==='object'?parsed.context:null,errors}
 }
 
@@ -190,15 +208,20 @@ const FALLBACK_PATTERNS=[['tail_wagging',/\b(?:tail wag\w*|wag\w* (?:its|the) ta
 export function conservativeVisionFallback(text,{interval={start:0,end:0},actor='subject_1',confidence=.72}={}){const observation=cleanNaturalLanguageObservation(text);if(!observation)return [];const events=[];for(const [action,pattern] of FALLBACK_PATTERNS)if(pattern.test(observation))events.push(makeEvent({start:interval.start,end:interval.end,actor,action,confidence,importance:.72,description:observation,source:'visionpsy-v3-fallback',evidence:{fallback:true}}));return events}
 
 export function reconcileV3Events(events=[],{sessionDuration=0,maxEvents=12}={}){
-  const safe=events.map(event=>makeEvent(event)).filter(event=>!NOISE_ACTIONS.has(event.action)&&event.confidence>=.48)
+  const rejected=[],safe=[]
+  for(const input of events){const event=makeEvent(input),fromId=event.from?.surface_id,toId=event.to?.surface_id,fromFurniture=Boolean(fromId)||event.from?.surface&&!['floor','ground'].includes(event.from.surface),toFurniture=Boolean(toId)||event.to?.surface&&!['floor','ground'].includes(event.to.surface);if(NOISE_ACTIONS.has(event.action)||event.confidence<.48)continue;if(event.action==='scene_change'&&event.source==='surface-v3'){rejected.push({event,reason:'surface_scene_change'});continue}if(['jumping_on','jumping_off'].includes(event.action)&&((fromId&&toId&&fromId===toId)||(fromFurniture&&toFurniture))){rejected.push({event,reason:'invalid_support_transition'});continue}safe.push(event)}
   const merged=mergeEvents(safe,{gapSeconds:1.4,maxContinuousGapSeconds:3.2})
-  const conflicts=new Map(),rejected=[]
+  const conflicts=new Map()
   for(const event of merged){const key=`${event.actor}:${Math.round((event.start+event.end)/4)}`,list=conflicts.get(key)||[];list.push(event);conflicts.set(key,list)}
   const final=[]
   for(const list of conflicts.values()){list.sort((a,b)=>b.confidence-a.confidence);for(const event of list){const contradiction=final.find(item=>item.actor===event.actor&&Math.max(item.start,event.start)<=Math.min(item.end,event.end)&&((item.action==='jumping_on'&&event.action==='jumping_off')||(item.action==='jumping_off'&&event.action==='jumping_on')));if(contradiction&&contradiction.confidence>=event.confidence){rejected.push({event,reason:'lower_confidence_contradiction'});continue}final.push(event)}}
-  const story=selectNarrativeEvents(final,{sessionDuration,maxEvents,minConfidence:.48})
+  const story=selectDeepV3StoryEvents(final,{sessionDuration,maxEvents})
   return {events:final.sort((a,b)=>a.start-b.start),story,rejected}
 }
+
+const HIGH_NARRATIVE_ACTIONS=new Set(['petting','person_dog_interaction','dog_dog_interaction','jumping_off','jumping_on','rolling','tail_wagging','object_presented','mouth_contact','picking_up','holding','carrying','playing','tugging','dropping'])
+const SUPPORT_ACTIONS=new Set(['jumping_off','jumping_on'])
+export function selectDeepV3StoryEvents(events=[],{sessionDuration=0,maxEvents=12}={}){const valid=events.map(makeEvent).filter(event=>event.action!=='scene_change'&&event.confidence>=.48),hasSemantic=valid.some(event=>HIGH_NARRATIVE_ACTIONS.has(event.action)&&!SUPPORT_ACTIONS.has(event.action)),priority=event=>{const posture=event.action.endsWith('_up')||event.action.endsWith('_down'),base=HIGH_NARRATIVE_ACTIONS.has(event.action)?1:(posture ? .2 : .45);return base+event.importance*.45+event.confidence*.3},ranked=valid.sort((a,b)=>priority(b)-priority(a)),chosen=[],support=[];for(const event of ranked){if(SUPPORT_ACTIONS.has(event.action)){support.push(event);continue}if(chosen.length<maxEvents)chosen.push(event)}for(const event of support.slice(0,hasSemantic?2:maxEvents-chosen.length))if(chosen.length<maxEvents)chosen.push(event);return chosen.sort((a,b)=>a.start-b.start)}
 
 export function evaluateRegressionV001(actualEvents=[],expected={},summaryEvents=null){
   const final=actualEvents.map(event=>makeEvent(event)),required=(expected.beats||[]).filter(beat=>beat.required),matches=[]
