@@ -76,6 +76,26 @@ studio continues with deterministic detection and tracking if the semantic
 endpoint is temporarily unavailable. Model files and local runtime data are
 excluded from Git.
 
+### Deep Recorded Video V3
+
+Uploaded files and resolved YouTube recordings use a dedicated four-pass V3
+pipeline instead of depending on playback speed: full local perception at
+5–8 fps, candidate interval generation, structured temporal VisionPsy review,
+and global identity/surface/event reconciliation. Live Camera retains the
+lightweight V2 path.
+
+```bash
+cd qvac-worker
+npm run test:v3
+npm run benchmark:regression -- /absolute/path/to/v3-debug.json
+```
+
+The V3 debug export records temporary track IDs separately from persistent
+subject IDs, pixel-based camera motion, compensated subject motion, surface
+entities, candidate intervals, structured-response metrics, explicit rejection
+reasons and the reconciled events used by the final summary. See
+`docs/DEEP_VIDEO_V3.md` for the pipeline and benchmark contract.
+
 ## Real video or camera
 
 ```bash

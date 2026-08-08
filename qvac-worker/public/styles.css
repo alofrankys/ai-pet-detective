@@ -24,6 +24,11 @@ video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
 .empty-state button { margin-top:14px; padding:11px 17px; border:0; border-radius:11px; color:#07110b; background:#7ce19d; cursor:pointer; font-weight:600; }
 .source-actions { display:flex; gap:9px; }
 .source-badge { position:absolute; z-index:2; left:14px; top:14px; max-width:calc(100% - 28px); padding:7px 10px; border:1px solid #476653; border-radius:999px; color:#dceae0; background:#07100bcc; backdrop-filter:blur(10px); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.deep-progress { position:absolute; z-index:3; left:50%; bottom:18px; transform:translateX(-50%); width:min(520px,calc(100% - 32px)); padding:14px 16px; border:1px solid #4c7058; border-radius:14px; background:#07100be8; box-shadow:0 16px 50px #0009; backdrop-filter:blur(12px); }
+.deep-progress[hidden] { display:none; }
+.deep-progress>div { display:flex; justify-content:space-between; gap:14px; color:#dff3e5; font-size:12px; }
+.deep-progress progress { width:100%; height:7px; margin:9px 0 7px; accent-color:#70dc94; }
+.deep-progress small { display:block; color:#90a899; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .empty-state button.secondary { color:#dceae0; border:1px solid #385344; background:#17241c; }
 .empty-state button.youtube-source { color:#bff5cf; border-color:#427c54; }
 .lower { padding:14px 2px 0; }

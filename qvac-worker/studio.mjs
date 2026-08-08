@@ -5,6 +5,7 @@ import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { NOISE_ACTIONS, canonicalAction } from './public/narrative-engine-v2.js'
+import { validateStructuredVision, conservativeVisionFallback, reconcileV3Events } from './public/deep-video-v3.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '..')
@@ -416,6 +417,46 @@ async function finalizeV2Session(input={}){
   return {version:2,events,summary,context,reviews}
 }
 
+const deepV3ActionSchema='petting|lying_down|standing_up|sitting_down|jumping_off|jumping_on|approaching_person|rear_up|tail_wagging|sniffing|object_presented|mouth_contact|picking_up|holding|carrying|playing|tugging|dropping|dog_dog_interaction|person_dog_interaction|resting|walking|running|rolling|other'
+const deepV3Schema=`{"events":[{"actor_ref":"subject_1","action":"${deepV3ActionSchema}","target_ref":null,"start":0.0,"end":1.0,"surface_before":null,"surface_after":null,"object_label":null,"confidence":0.0,"evidence":["short observable reason"]}],"context":{"environment":"unknown","scene":"unknown"}}`
+
+function deepV3Metrics(){return {vision_calls:0,useful_vision_responses:0,valid_structured_responses:0,repaired_responses:0,fallback_parsed_responses:0,discarded_responses:0,structured_events_created:0}}
+function usefulVisionText(raw){const text=String(raw||'').trim();return text.length>12&&!/^same\.?$/i.test(text)&&!/^\{?\s*"?events"?\s*:\s*\[\s*\]/i.test(text)}
+
+export async function analyseDeepWindow(input={},visionCall=callVisionPsy){
+  const metrics=deepV3Metrics(),decisions=[],interval={start:Math.max(0,Number(input.interval?.start)||0),end:Math.max(0,Number(input.interval?.end)||0)},knownSubjects=Array.isArray(input.knownSubjects)?input.knownSubjects.slice(0,12):[],image=input.sequence?.image
+  if(!/^data:image\/jpeg;base64,/.test(String(image||'')))throw new Error('Deep window requires a JPEG contact sheet')
+  const language=input.language==='it'?'it':'en',grounding=language==='it'
+    ? `Analizza questa sequenza cronologica PRIMA→AZIONE→DOPO relativa all'intervallo ${interval.start.toFixed(2)}–${interval.end.toFixed(2)} secondi. Soggetti persistenti consentiti: ${knownSubjects.join(', ')||'nessuno'}. Restituisci soltanto JSON valido conforme allo schema. Ogni evento deve essere visibile in più fotogrammi e usare actor_ref/target_ref forniti. Il movimento della fotocamera non è un'azione. Non dedurre emozioni. Un oggetto generico è ammesso se persiste. Il nome di superficie richiede una relazione visiva stabile, non una singola etichetta. Se non c'è un evento affidabile restituisci events vuoto. Schema: ${deepV3Schema}`
+    : `Analyse this chronological BEFORE→ACTION→AFTER sequence for interval ${interval.start.toFixed(2)}–${interval.end.toFixed(2)} seconds. Allowed persistent subjects: ${knownSubjects.join(', ')||'none'}. Return only valid JSON matching the schema. Every event must be visible across multiple frames and use the supplied actor_ref/target_ref values. Camera movement is not an action. Infer no emotions. A generic persistent object is allowed. A surface name requires a stable visual relation, not one detector label. Return an empty events array when nothing is reliable. Schema: ${deepV3Schema}`
+  metrics.vision_calls++;let raw=await visionCall([{role:'user',content:[{type:'image_url',image_url:{url:image}},{type:'text',text:grounding}]}],420);if(usefulVisionText(raw))metrics.useful_vision_responses++
+  let validated=validateStructuredVision(raw,{interval,knownSubjects}),repaired=false
+  if(!validated.valid){
+    decisions.push(...validated.errors.map(reason=>({status:'rejected',stage:'initial_parse',reason,interval})));metrics.vision_calls++
+    const repairPrompt=language==='it'?`Ripara l'output seguente in JSON rigorosamente valido senza aggiungere fatti. Usa soltanto soggetti consentiti e limita i timestamp a ${interval.start}–${interval.end}. Output malformato: ${String(raw).slice(0,5000)}. Schema: ${deepV3Schema}`:`Repair the following output into strict valid JSON without adding facts. Use only allowed subjects and keep timestamps within ${interval.start}–${interval.end}. Malformed output: ${String(raw).slice(0,5000)}. Schema: ${deepV3Schema}`
+    const repairedRaw=await visionCall([{role:'user',content:repairPrompt}],420),repairedValidation=validateStructuredVision(repairedRaw,{interval,knownSubjects});raw=repairedRaw;if(repairedValidation.valid){validated=repairedValidation;repaired=true;metrics.repaired_responses++}else decisions.push(...repairedValidation.errors.map(reason=>({status:'rejected',stage:'repair_parse',reason,interval})))
+  }
+  let events=validated.valid?validated.events:[]
+  if(validated.valid)metrics.valid_structured_responses++
+  if(!events.length&&usefulVisionText(raw)){
+    const actor=knownSubjects.find(value=>/^subject_/.test(value))||'subject_1',fallback=conservativeVisionFallback(raw,{interval,actor,confidence:.72})
+    if(fallback.length){events=fallback;metrics.fallback_parsed_responses++;decisions.push(...fallback.map(event=>({status:'accepted',stage:'fallback',event_id:event.id,reason:'conservative_recognizable_action'})))}
+    else{metrics.discarded_responses++;decisions.push({status:'rejected',stage:'fallback',reason:'useful_response_without_grounded_recognizable_action',raw:String(raw).slice(0,800),interval})}
+  }
+  metrics.structured_events_created=events.length
+  decisions.push(...events.filter(event=>!decisions.some(item=>item.event_id===event.id)).map(event=>({status:'accepted',stage:repaired?'repair':'structured',event_id:event.id,reason:'validated_structured_event'})))
+  return {version:3,events,context:validated.context||{},metrics,decisions,repair_attempted:!validated.valid||repaired,raw_response:visionpsyDebug?String(raw).slice(0,5000):undefined}
+}
+
+async function finalizeDeepV3(input={}){
+  const duration=Math.max(0,Number(input.sessionDuration)||0),knownSubjects=new Set((input.identity||[]).map(item=>item.subject_id).filter(Boolean)),identityReconciliation=[],safe=[]
+  for(const raw of Array.isArray(input.events)?input.events:[]){const actor=String(raw.actor||raw.actor_ref||'');if(/^subject_/.test(actor)&&knownSubjects.size&&!knownSubjects.has(actor)){identityReconciliation.push({event_id:raw.id,status:'rejected',reason:'unknown_persistent_subject',actor});continue}safe.push(raw)}
+  const reconciled=reconcileV3Events(safe,{sessionDuration:duration,maxEvents:12}),surfaceReconciliation=[]
+  for(const event of reconciled.events){if(['jumping_on','jumping_off'].includes(event.action)){const fromId=event.from?.surface_id,toId=event.to?.surface_id;if(fromId&&toId&&fromId===toId){surfaceReconciliation.push({event_id:event.id,status:'rejected',reason:'same_surface_entity_label_flip'});event.confidence=0}}}
+  const events=reconciled.events.filter(event=>event.confidence>=.48),story=selectV2StoryEvents(events,duration,12),summary=await summarizeV2Events(story,input.language==='it'?'it':'en',input.context||{},duration)
+  return {version:3,events,story,summary,context:input.context||{},identity_reconciliation:identityReconciliation,surface_reconciliation:surfaceReconciliation,rejected:[...reconciled.rejected,...identityReconciliation,...surfaceReconciliation]}
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://127.0.0.1:${port}`)
   try {
@@ -477,6 +518,17 @@ const server = http.createServer(async (req, res) => {
       const result=await finalizeV2Session(input)
       return json(res,200,result)
     }
+    if (req.method === 'POST' && url.pathname === '/api/deep/analyse-window') {
+      if (!visionpsyReady && !(await ensureVisionPsy())) return json(res,503,{error:'VisionPsy local endpoint not ready'})
+      const body=await readBody(req,10_000_000);let input={}
+      try{input=JSON.parse(body.toString('utf8'))}catch{return json(res,400,{error:'invalid JSON'})}
+      return json(res,200,await analyseDeepWindow(input))
+    }
+    if (req.method === 'POST' && url.pathname === '/api/deep/finalize') {
+      const body=await readBody(req,4_000_000);let input={}
+      try{input=JSON.parse(body.toString('utf8'))}catch{return json(res,400,{error:'invalid JSON'})}
+      return json(res,200,await finalizeDeepV3(input))
+    }
     if (req.method === 'POST' && url.pathname === '/api/youtube/resolve') {
       const body=await readBody(req,20_000)
       let input={}
@@ -496,7 +548,7 @@ const server = http.createServer(async (req, res) => {
       const asset = mediaPipeAssets.get(url.pathname)
       if(asset){if(!fs.existsSync(asset))return json(res,404,{error:'asset not installed'});res.writeHead(200,{'content-type':types[path.extname(asset)]||'application/octet-stream','cache-control':'public, max-age=3600'});return fs.createReadStream(asset).pipe(res)}
       const requested = url.pathname === '/' ? 'index.html' : url.pathname.slice(1)
-      if (!['index.html', 'styles.css', 'app.js', 'narrative-engine-v2.js'].includes(requested)) return json(res, 404, { error: 'not found' })
+      if (!['index.html', 'styles.css', 'app.js', 'narrative-engine-v2.js', 'deep-video-v3.js'].includes(requested)) return json(res, 404, { error: 'not found' })
       const file = path.join(publicDir, requested)
       res.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream' })
       return fs.createReadStream(file).pipe(res)
@@ -507,13 +559,15 @@ const server = http.createServer(async (req, res) => {
   }
 })
 
-startDetector()
-ensureVisionPsy().catch(()=>{})
-server.listen(port, '127.0.0.1', () => console.log(`VisionPsy Studio ready at http://127.0.0.1:${port}`))
-
 function close() {
   detector?.kill('SIGTERM')
   server.close(() => process.exit(0))
 }
-process.on('SIGINT', close)
-process.on('SIGTERM', close)
+const isMain=path.resolve(process.argv[1]||'')===fileURLToPath(import.meta.url)
+if(isMain){
+  startDetector()
+  ensureVisionPsy().catch(()=>{})
+  server.listen(port, '127.0.0.1', () => console.log(`VisionPsy Studio ready at http://127.0.0.1:${port}`))
+  process.on('SIGINT', close)
+  process.on('SIGTERM', close)
+}

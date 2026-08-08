@@ -5,6 +5,16 @@ import {
   compensateMotion,
   summaryPayload
 } from './narrative-engine-v2.js'
+import {
+  PersistentIdentityManager,
+  BackgroundMotionEstimator,
+  PersistentSurfaceMap,
+  TemporalPostureClassifier,
+  DeepVideoDebugRecorder,
+  appearanceDescriptor,
+  generateCandidateIntervals,
+  reconcileV3Events
+} from './deep-video-v3.js'
 
 const video = document.getElementById('camera')
 const capture = document.getElementById('capture')
@@ -36,6 +46,12 @@ const youtubeInput = document.getElementById('youtubeInput')
 const youtubeSubmit = document.getElementById('youtubeSubmit')
 const youtubeError = document.getElementById('youtubeError')
 const closeYoutubeModal = document.getElementById('closeYoutubeModal')
+const deepProgress = document.getElementById('deepProgress')
+const deepPhase = document.getElementById('deepPhase')
+const deepPercent = document.getElementById('deepPercent')
+const deepProgressBar = document.getElementById('deepProgressBar')
+const deepDetail = document.getElementById('deepDetail')
+const narrativeVersion = document.getElementById('narrativeVersion')
 const captureCtx = capture.getContext('2d', { willReadFrequently:true })
 const overlayCtx = overlay.getContext('2d')
 const poseCrop = document.createElement('canvas')
@@ -66,6 +82,8 @@ const copy = {
 }
 Object.assign(copy.en,{rawObservations:'raw observations',behaviourEvents:'behaviour events',exportDebug:'Export debug JSON',finalising:'Reviewing the full video…',crouching:'Crouching',sitting_down:'Sitting down',standing_up:'Standing up',lying_down:'Lying down',rolling:'Rolling',rubbing:'Rubbing',shaking:'Shaking',stretching:'Stretching',scratching:'Scratching',mouth_open:'Mouth open',tongue_visible:'Tongue visible',head_tilt:'Head tilt',jumping_on:'Jumping on',jumping_off:'Jumping off',entering:'Entering',crossing:'Crossing',dropping:'Dropping',tugging:'Tugging',fetching:'Fetching',mouth_contact:'Mouth contact',dog_dog_interaction:'Dog interaction',person_dog_interaction:'Person–dog interaction',scene_change:'Scene change'})
 Object.assign(copy.it,{rawObservations:'osservazioni grezze',behaviourEvents:'eventi comportamentali',exportDebug:'Esporta debug JSON',finalising:'Revisione dell’intero video…',crouching:'Accovacciato',sitting_down:'Si siede',standing_up:'Si alza',lying_down:'Si sdraia',rolling:'Si rotola',rubbing:'Si strofina',shaking:'Si scuote',stretching:'Si allunga',scratching:'Si gratta',mouth_open:'Bocca aperta',tongue_visible:'Lingua visibile',head_tilt:'Testa inclinata',jumping_on:'Sale con un salto',jumping_off:'Scende con un salto',entering:'Entra',crossing:'Attraversa',dropping:'Lascia cadere',tugging:'Gioco di trazione',fetching:'Riporto',mouth_contact:'Contatto con la bocca',dog_dog_interaction:'Interazione tra cani',person_dog_interaction:'Interazione persona–cane',scene_change:'Cambio scena'})
+Object.assign(copy.en,{deepPassA:'Deep analysis · perception',deepPassB:'Deep analysis · temporal candidates',deepPassC:'Deep analysis · semantic review',deepPassD:'Deep analysis · global reconciliation',deepPreparing:'Preparing the recorded video…',deepComplete:'Deep recorded analysis complete',deepFailed:'Deep analysis failed'})
+Object.assign(copy.it,{deepPassA:'Analisi profonda · percezione',deepPassB:'Analisi profonda · candidati temporali',deepPassC:'Analisi profonda · revisione semantica',deepPassD:'Analisi profonda · riconciliazione globale',deepPreparing:'Preparazione del video registrato…',deepComplete:'Analisi profonda del video completata',deepFailed:'Analisi profonda non riuscita'})
 
 let language = 'en'
 let activeFilter = 'all'
@@ -118,6 +136,10 @@ const contextHypotheses = new Map()
 const objectHypotheses = new Map()
 const objectRelations = new Map()
 const coverageFrames = []
+let deepDebugRecorder = null
+let deepAnalysisToken = 0
+let deepAnalysisComplete = false
+let deepFinalResult = null
 
 function t(key){ return copy[language][key] || copy.en[key] || key }
 
@@ -801,11 +823,12 @@ function showSource(kind,title=''){
 }
 
 function stopCurrentSource(){
+  deepAnalysisToken++;deepProgress.hidden=true
   running=false
   if(timer){clearInterval(timer);timer=null}
   if(video.srcObject){video.srcObject.getTracks().forEach(track=>track.stop());video.srcObject=null}
   if(objectUrl){URL.revokeObjectURL(objectUrl);objectUrl=null}
-  video.pause();video.removeAttribute('src');video.load()
+  video.pause();video.controls=false;video.removeAttribute('src');video.load()
 }
 
 function fuseLatestMotion(item){
@@ -911,7 +934,98 @@ async function interpret(trigger=null){
   }catch(error){debugRecorder.addRaw({type:'visionpsy-error',videoSeconds:currentVideoSeconds(),message:String(error?.message||error)})}finally{interpreting=false;nextInterpretAt=pendingSemanticTrigger?Math.min(nextInterpretAt,pendingSemanticTrigger.readyAt):Math.max(nextInterpretAt,Date.now()+1500)}
 }
 
-function resetSession(){tracks=[];retiredTracks=[];nextTrackId=1;subjectCounters.clear();categoryColorCounters.clear();events.length=0;sessionEvents.length=0;sessionContext.clear();sessionMaxVisible.clear();sessionSummaryButton.hidden=true;eventLastSeen.clear();timeline.replaceChildren();lastInterpretationAt=0;semanticFrames.splice(0);lastSemanticSampleAt=0;faceCues=[];handCues=[];handDogContact.clear();nextFaceCueAt=0;nextHandCueAt=0;nextAnimalPoseAt=0;lastFinalResult=null;resetNarrativeV2();clearSceneHistory();sceneText.textContent='—'}
+function setDeepProgress(phase,completed,total,detail=''){
+  const percent=total?Math.round(completed/total*100):0
+  deepProgress.hidden=false;deepPhase.textContent=phase;deepPercent.textContent=`${percent}%`;deepProgressBar.value=percent;deepDetail.textContent=detail
+}
+
+function waitForVideoEvent(name,timeout=12_000){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{cleanup();reject(new Error(`video ${name} timeout`))},timeout),cleanup=()=>{clearTimeout(timer);video.removeEventListener(name,onEvent);video.removeEventListener('error',onError)},onEvent=()=>{cleanup();resolve()},onError=()=>{cleanup();reject(new Error(video.error?.message||'video error'))};video.addEventListener(name,onEvent,{once:true});video.addEventListener('error',onError,{once:true})})}
+async function seekDeepVideo(time){if(Math.abs(video.currentTime-time)<.002){await new Promise(resolve=>requestAnimationFrame(resolve));return}const ready=waitForVideoEvent('seeked');video.currentTime=Math.max(0,Math.min(video.duration-.001,time));await ready}
+
+function deepRgbFromCapture(){
+  const rgba=captureCtx.getImageData(0,0,640,640).data,rgb=new Uint8Array(640*640*3)
+  for(let source=0,target=0;source<rgba.length;source+=4){rgb[target++]=rgba[source];rgb[target++]=rgba[source+1];rgb[target++]=rgba[source+2]}
+  return {rgba,rgb}
+}
+
+function assignTemporaryTrackIds(detections,fragments,nextId,time){
+  const claimed=new Set()
+  return detections.map(detection=>{let best=null;for(const fragment of fragments.values()){if(fragment.label!==detection.label||claimed.has(fragment.id)||time-fragment.lastSeen>1.2)continue;const overlap=iou(fragment.box,detection.box),gap=Math.hypot((fragment.box[0]+fragment.box[2]-detection.box[0]-detection.box[2])/2,(fragment.box[1]+fragment.box[3]-detection.box[1]-detection.box[3])/2),score=overlap*.72+(1-Math.min(1,gap/.5))*.28;if(!best||score>best.score)best={fragment,score}}let id;if(best&&best.score>.32){id=best.fragment.id;claimed.add(id)}else{id=`track_${nextId.value++}`;fragments.set(id,{id,label:detection.label,box:detection.box,lastSeen:time})}fragments.set(id,{id,label:detection.label,box:[...detection.box],lastSeen:time});return {...detection,track_id:id}})
+}
+
+async function deepPoseFor(box){
+  const crop=paddedSquare(box),rgba=(()=>{poseCropCtx.drawImage(capture,crop.x*640,crop.y*640,crop.size*640,crop.size*640,0,0,256,256);return poseCropCtx.getImageData(0,0,256,256).data})(),rgb=new Uint8Array(256*256*3)
+  for(let source=0,target=0;source<rgba.length;source+=4){rgb[target++]=rgba[source];rgb[target++]=rgba[source+1];rgb[target++]=rgba[source+2]}
+  const response=await fetch('/api/pose',{method:'POST',headers:{'content-type':'application/octet-stream'},body:rgb});if(!response.ok)return []
+  const result=await response.json();return (result.keypoints||[]).map(point=>({...point,x:crop.x+point.x*crop.size,y:crop.y+point.y*crop.size,local:point}))
+}
+
+function deepThumbnail(){const thumb=document.createElement('canvas');thumb.width=320;thumb.height=180;thumb.getContext('2d').drawImage(video,0,0,320,180);return thumb.toDataURL('image/jpeg',.58)}
+function loadDeepImage(source){return new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=reject;image.src=source})}
+async function deepContactSheet(interval,observations){
+  const inside=observations.filter(item=>item.time>=interval.start&&item.time<=interval.end),pool=inside.length?inside:[...observations].sort((a,b)=>Math.abs(a.time-(interval.start+interval.end)/2)-Math.abs(b.time-(interval.start+interval.end)/2)).slice(0,4),count=Math.max(4,Math.min(8,Math.ceil(Math.max(1,interval.end-interval.start)*1.5))),selected=[]
+  for(let index=0;index<count;index++){const target=interval.start+(interval.end-interval.start)*(count===1?0:index/(count-1)),closest=[...pool].sort((a,b)=>Math.abs(a.time-target)-Math.abs(b.time-target))[0];if(closest&&!selected.includes(closest))selected.push(closest)}
+  const columns=4,rows=Math.ceil(selected.length/columns),sheet=document.createElement('canvas');sheet.width=960;sheet.height=240*rows;const context=sheet.getContext('2d');context.fillStyle='#07100b';context.fillRect(0,0,sheet.width,sheet.height)
+  const images=await Promise.all(selected.map(item=>loadDeepImage(item.image)))
+  images.forEach((image,index)=>{const x=index%columns*240,y=Math.floor(index/columns)*240;context.drawImage(image,x,y,240,240);context.fillStyle='rgba(3,10,6,.78)';context.fillRect(x+7,y+7,74,22);context.fillStyle='#e4f5e9';context.font='600 12px sans-serif';context.fillText(`${selected[index].time.toFixed(1)}s`,x+14,y+22)})
+  return {image:sheet.toDataURL('image/jpeg',.78),frame_count:selected.length,timestamps:selected.map(item=>item.time)}
+}
+
+function deepBoxCenter(box){return {x:(box[0]+box[2])/2,y:(box[1]+box[3])/2}}
+function deepWorldMotion(subject,previous,cameraMotion){
+  if(!previous)return {observed:{dx:0,dy:0,magnitude:0},compensated:{dx:0,dy:0,magnitude:0,valid:false}}
+  const currentCenter=deepBoxCenter(subject.box),previousCenter=deepBoxCenter(previous.box),dx=currentCenter.x-previousCenter.x,dy=currentCenter.y-previousCenter.y,valid=Number(cameraMotion.confidence)>=.28,worldDx=valid?dx-Number(cameraMotion.dx||0):0,worldDy=valid?dy-Number(cameraMotion.dy||0):0
+  return {observed:{dx,dy,magnitude:Math.hypot(dx,dy)},compensated:{dx:worldDx,dy:worldDy,magnitude:Math.hypot(worldDx,worldDy),valid}}
+}
+
+async function runDeepRecordedAnalysis(){
+  const token=++deepAnalysisToken;deepAnalysisComplete=false;deepFinalResult=null;video.pause();video.controls=false;running=false
+  const duration=Number(video.duration);if(!Number.isFinite(duration)||duration<=0)throw new Error('Recorded video duration unavailable')
+  narrativeVersion.textContent='VISIONPSY · DEEP VIDEO V3';deepDebugRecorder=new DeepVideoDebugRecorder({source:currentSource});debugRecorder.meta={...debugRecorder.meta,analysis_mode:'recorded_deep_v3'}
+  const sampleFps=duration>300?5:6,step=1/sampleFps,totalFrames=Math.max(1,Math.floor(duration/step)+1),identity=new PersistentIdentityManager({newSubjectFrames:Math.max(8,Math.round(sampleFps*1.8))}),camera=new BackgroundMotionEstimator(),surfaces=new PersistentSurfaceMap(),posture=new TemporalPostureClassifier(),fragments=new Map(),nextFragment={value:1},previousSubjects=new Map(),objectFirstSeen=new Map(),observations=[],semanticEvents=[];let poseFrames=0,cameraConfidenceSum=0
+  setDeepProgress(t('deepPassA'),0,totalFrames,t('deepPreparing'))
+  for(let frameIndex=0;frameIndex<totalFrames;frameIndex++){
+    if(token!==deepAnalysisToken)return;const time=Math.min(duration-.001,frameIndex*step);await seekDeepVideo(time);captureCtx.drawImage(video,0,0,640,640);const {rgba,rgb}=deepRgbFromCapture(),response=await fetch('/api/detect',{method:'POST',headers:{'content-type':'application/octet-stream'},body:rgb});if(!response.ok)throw new Error((await response.json()).error||`detector ${response.status}`)
+    const payload=await response.json(),detected=(payload.objects||[]).filter(item=>item.score>=.24),dynamicBoxes=detected.filter(item=>!environmentLabels.has(item.label)).map(item=>item.box),cameraMotion=camera.update(rgba,640,640,dynamicBoxes);cameraConfidenceSum+=cameraMotion.confidence;deepDebugRecorder.camera_motion_metrics.frames++;if(cameraMotion.confidence>=.28)deepDebugRecorder.camera_motion_metrics.confident_frames++
+    const temporary=assignTemporaryTrackIds(detected,fragments,nextFragment,time).map(item=>({...item,descriptor:item.label==='dog'?appearanceDescriptor(rgba,640,640,item.box):null})),dogs=identity.update(temporary,time,cameraMotion),byTrack=new Map(dogs.map(item=>[item.track_id,item])),subjects=temporary.map(item=>item.label==='dog'?(byTrack.get(item.track_id)||item):item.label==='person'?{...item,subject_id:'person_1',identity_decision:'matched'}:item)
+    for(const subject of subjects.filter(item=>item.label==='dog'))deepDebugRecorder.recordIdentity({time,track_id:subject.track_id,subject_id:subject.subject_id,reid_score:subject.reid_score,reid_components:subject.reid_components,identity_decision:subject.identity_decision})
+    surfaces.updateDetections(detected,time);const frameEvents=[]
+    for(const subject of subjects.filter(item=>item.label==='dog'&&item.subject_id)){
+      const motion=deepWorldMotion(subject,previousSubjects.get(subject.subject_id),cameraMotion);subject.observed_motion=motion.observed;subject.world_motion=motion.compensated;previousSubjects.set(subject.subject_id,{box:[...subject.box],time})
+      const surfaceEvent=surfaces.updateRelation(subject,time);if(surfaceEvent){frameEvents.push(surfaceEvent);semanticEvents.push(surfaceEvent)}
+      if(animalPoseEnabled&&frameIndex%2===0){try{const points=await deepPoseFor(subject.box),poseState=posture.update(subject.subject_id,points.map(point=>point.local||point),time);subject.pose={keypoints:points,candidate:poseState.candidate,confidence:poseState.confidence,stable:poseState.stable};poseFrames++;if(poseState.transition){const action={standing:'standing_up',sitting:'sitting_down',lying:'lying_down',crouching:'crouching'}[poseState.transition.current]||'other',event={id:`posture_${subject.subject_id}_${frameIndex}`,start:poseState.transition.start,end:poseState.transition.end,actor:subject.subject_id,action,confidence:poseState.transition.confidence,importance:.72,description:`${subject.subject_id} changes posture from ${poseState.transition.previous} to ${poseState.transition.current}.`,source:'posture-v3'};frameEvents.push(event);semanticEvents.push(event)}}catch{}}
+    }
+    const stableDogs=subjects.filter(item=>item.label==='dog'&&item.subject_id),people=subjects.filter(item=>item.label==='person'),relations=[]
+    for(let first=0;first<stableDogs.length;first++)for(let second=first+1;second<stableDogs.length;second++){const gap=distance(stableDogs[first],stableDogs[second]);relations.push({type:'dog_dog',first:stableDogs[first].subject_id,second:stableDogs[second].subject_id,distance:gap,changed:false})}
+    for(const dog of stableDogs)for(const person of people){const gap=distance(dog,person);relations.push({type:'person_dog',first:dog.subject_id,second:person.subject_id,distance:gap,changed:gap<.25})}
+    let hands=[];if(handLandmarker&&stableDogs.length&&people.length&&relations.some(item=>item.type==='person_dog'&&item.distance<.38)){try{const result=handLandmarker.detectForVideo(capture,time*1000);hands=(result.landmarks||[]).map(points=>points.map(point=>({x:point.x,y:point.y,z:point.z})))}catch{}}
+    for(const dog of stableDogs){const contact=hands.some(points=>points.some(point=>point.x>=dog.box[0]-.04&&point.x<=dog.box[2]+.04&&point.y>=dog.box[1]-.04&&point.y<=dog.box[3]+.04));if(contact)relations.push({type:'hand_dog',first:dog.subject_id,second:'person_1',distance:0,changed:true})}
+    const objectCandidates=subjects.filter(item=>dogInterestLabels.has(item.label)).map(item=>{if(!objectFirstSeen.has(item.track_id))objectFirstSeen.set(item.track_id,time);const mouthProximity=stableDogs.some(dog=>dog.pose?.keypoints?.[2]&&pointBoxDistance(dog.pose.keypoints[2],item.box)<.065);return {track_id:item.track_id,label:item.label,box:item.box,confidence:item.score,new:time-objectFirstSeen.get(item.track_id)<.5,mouth_proximity:mouthProximity}})
+    const observation={time:Number(time.toFixed(3)),camera_motion:cameraMotion,subjects:subjects.map(item=>({track_id:item.track_id,subject_id:item.subject_id,label:item.label,box:item.box,confidence:item.score,reid_score:item.reid_score,reid_components:item.reid_components,identity_decision:item.identity_decision,observed_motion:item.observed_motion,world_motion:item.world_motion,pose:item.pose?{keypoints:item.pose.keypoints,candidate:item.pose.candidate,confidence:item.pose.confidence,stable:item.pose.stable}:null})),hands,relations,object_candidates:objectCandidates,events:frameEvents,image:deepThumbnail(),identity_decisions:subjects.filter(item=>item.label==='dog').map(item=>({track_id:item.track_id,subject_id:item.subject_id,identity_decision:item.identity_decision}))}
+    observations.push(observation);deepDebugRecorder.recordObservation({...observation,image:undefined});if(frameIndex%3===0){draw(subjects.filter(item=>item.subject_id).map((item,index)=>({...item,id:Number(item.subject_id?.split('_')[1])||index+1,subjectNumber:Number(item.subject_id?.split('_')[1])||index+1,color:categoryPalettes[category(item.label)][index%categoryPalettes[category(item.label)].length],missed:0,evidenceFrames:3})));setDeepProgress(t('deepPassA'),frameIndex+1,totalFrames,`${time.toFixed(1)}s / ${duration.toFixed(1)}s · ${identity.subjects.size} persistent dogs`);await new Promise(resolve=>requestAnimationFrame(resolve))}
+  }
+  deepDebugRecorder.pass_a.effective_detector_fps=sampleFps;deepDebugRecorder.pass_a.pose_frames=poseFrames;deepDebugRecorder.camera_motion_metrics.mean_confidence=deepDebugRecorder.camera_motion_metrics.frames?cameraConfidenceSum/deepDebugRecorder.camera_motion_metrics.frames:0;deepDebugRecorder.identity_metrics.persistent_subjects=identity.subjects.size;deepDebugRecorder.surface_entities=surfaces.snapshot()
+  setDeepProgress(t('deepPassB'),0,1,`${observations.length} observations`);const candidates=generateCandidateIntervals(observations,duration);deepDebugRecorder.candidate_intervals=candidates;setDeepProgress(t('deepPassB'),1,1,`${candidates.length} merged intervals`)
+  for(let index=0;index<candidates.length;index++){
+    if(token!==deepAnalysisToken)return;const candidate=candidates[index]
+    try{const sequence=await deepContactSheet(candidate,observations),knownSubjects=[...identity.subjects.keys(),'person_1'],response=await fetch('/api/deep/analyse-window',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({language,interval:candidate,sequence,knownSubjects,context:currentContextPayload()})}),result=await response.json();if(!response.ok)throw new Error(result.error||'Deep semantic window failed');deepDebugRecorder.recordVision(result);semanticEvents.push(...(result.events||[]));setDeepProgress(t('deepPassC'),index+1,candidates.length,`${candidate.start.toFixed(1)}–${candidate.end.toFixed(1)}s · ${(result.events||[]).length} events`)}catch(error){deepDebugRecorder.vision_metrics.discarded_responses++;deepDebugRecorder.dropped_events.push({status:'rejected',stage:'window_request',interval:{start:candidate.start,end:candidate.end},reason:String(error.message||error)});setDeepProgress(t('deepPassC'),index+1,candidates.length,`${candidate.start.toFixed(1)}–${candidate.end.toFixed(1)}s · review unavailable`)}
+  }
+  deepDebugRecorder.semantic_events_before_reconciliation=semanticEvents;const local=reconcileV3Events(semanticEvents,{sessionDuration:duration,maxEvents:12});setDeepProgress(t('deepPassD'),0,1,`${local.events.length} events to reconcile`)
+  const finalResponse=await fetch('/api/deep/finalize',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({language,sessionDuration:duration,events:local.events,context:currentContextPayload(),identity:identity.snapshot(),surfaces:surfaces.snapshot(),candidates})}),finalResult=await finalResponse.json();if(!finalResponse.ok)throw new Error(finalResult.error||'Deep final reconciliation failed')
+  deepFinalResult=finalResult;deepAnalysisComplete=true;deepDebugRecorder.finalize({events:finalResult.events,story:finalResult.story,summary:finalResult.summary,surfaces:surfaces.snapshot()});deepDebugRecorder.identity_metrics.persistent_subjects=identity.subjects.size;deepDebugRecorder.surface_reconciliation=finalResult.surface_reconciliation||[];setDeepProgress(t('deepPassD'),1,1,t('deepComplete'));statusText.textContent=t('deepComplete');statusDot.className='ready'
+  for(const event of finalResult.story||[])addEvent(semanticActionTitle(event.action),`${event.description} · ${Math.round(event.confidence*100)}%`,`deep-v3:${event.id}`,[],0)
+  sessionSummaryButton.hidden=false;sessionSummaryText.textContent=finalResult.summary||fallbackV2Narrative(finalResult.events||[]);renderDeepSessionFacts(finalResult.events||[]);sessionModal.hidden=false
+  setTimeout(()=>{if(token===deepAnalysisToken)deepProgress.hidden=true},1600);await seekDeepVideo(0);video.controls=true;video.play().catch(()=>{})
+}
+
+function renderDeepSessionFacts(events){const metrics=deepDebugRecorder?.vision_metrics||{},facts=[`${deepDebugRecorder?.pass_a.frames_processed||0} ${t('rawObservations')}`,`${events.length} ${t('behaviourEvents')}`,`${deepDebugRecorder?.identity_metrics.persistent_subjects||0} persistent dogs`,`${metrics.structured_events_created||0} structured VisionPsy events`];sessionSummaryFacts.replaceChildren(...facts.map(text=>Object.assign(document.createElement('span'),{textContent:text})))}
+
+async function startDeepRecordedSource(kind,title=''){
+  resetSession();showSource(kind,title);emptyState.style.display='none';currentSource.analysisMode='recorded_deep_v3';debugRecorder.source=currentSource
+  try{await runDeepRecordedAnalysis()}catch(error){if(String(error.message||error).includes('cancel'))return;deepProgress.hidden=true;statusDot.className='error';statusText.textContent=`${t('deepFailed')}: ${String(error.message||error).slice(0,90)}`;deepDebugRecorder?.dropped_events.push({status:'error',reason:String(error.message||error)})}
+}
+
+function resetSession(){tracks=[];retiredTracks=[];nextTrackId=1;subjectCounters.clear();categoryColorCounters.clear();events.length=0;sessionEvents.length=0;sessionContext.clear();sessionMaxVisible.clear();sessionSummaryButton.hidden=true;eventLastSeen.clear();timeline.replaceChildren();lastInterpretationAt=0;semanticFrames.splice(0);lastSemanticSampleAt=0;faceCues=[];handCues=[];handDogContact.clear();nextFaceCueAt=0;nextHandCueAt=0;nextAnimalPoseAt=0;lastFinalResult=null;deepAnalysisComplete=false;deepFinalResult=null;deepDebugRecorder=null;narrativeVersion.textContent='VISIONPSY · NARRATIVE V2';resetNarrativeV2();clearSceneHistory();sceneText.textContent='—'}
 async function startLoop(){running=true;emptyState.style.display='none';if(!timer)timer=setInterval(analyse,260)}
 async function startCamera(){
   try{stopCurrentSource();const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false});video.srcObject=stream;await video.play();resetSession();showSource('camera');startLoop()}
@@ -919,7 +1033,7 @@ async function startCamera(){
 }
 async function openVideo(file){
   if(!file)return
-  stopCurrentSource();objectUrl=URL.createObjectURL(file);video.src=objectUrl;video.loop=false;await video.play();resetSession();showSource('file',file.name);startLoop()
+  stopCurrentSource();objectUrl=URL.createObjectURL(file);video.src=objectUrl;video.loop=false;video.muted=true;video.load();if(video.readyState<1)await waitForVideoEvent('loadedmetadata');await startDeepRecordedSource('file',file.name)
 }
 async function openYoutube(url){
   youtubeError.hidden=true;youtubeSubmit.disabled=true;youtubeSubmit.textContent=t('preparingYoutube')
@@ -927,7 +1041,7 @@ async function openYoutube(url){
     const response=await fetch('/api/youtube/resolve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url})})
     const result=await response.json()
     if(!response.ok)throw new Error(result.error||t('invalidYoutube'))
-    stopCurrentSource();video.src=result.mediaUrl;video.loop=false;video.muted=true;video.load();await video.play();resetSession();showSource('youtube',result.title);youtubeModal.hidden=true;startLoop()
+    stopCurrentSource();video.src=result.mediaUrl;video.loop=false;video.muted=true;video.load();if(video.readyState<1)await waitForVideoEvent('loadedmetadata');youtubeModal.hidden=true;await startDeepRecordedSource('youtube',result.title)
   }catch(error){youtubeError.textContent=String(error.message||error);youtubeError.hidden=false}
   finally{youtubeSubmit.disabled=false;youtubeSubmit.textContent=t('analyseUrl')}
 }
@@ -953,9 +1067,9 @@ youtubeButton.addEventListener('click',()=>{youtubeError.hidden=true;youtubeModa
 youtubeForm.addEventListener('submit',event=>{event.preventDefault();openYoutube(youtubeInput.value.trim())})
 closeYoutubeModal.addEventListener('click',()=>youtubeModal.hidden=true)
 youtubeModal.addEventListener('click',event=>{if(event.target===youtubeModal)youtubeModal.hidden=true})
-video.addEventListener('ended',()=>{running=false;if(timer){clearInterval(timer);timer=null}showSessionSummary({finalPass:true})})
-sessionSummaryButton.addEventListener('click',()=>showSessionSummary({finalPass:false}))
-exportDebugButton.addEventListener('click',()=>debugRecorder.download())
+video.addEventListener('ended',()=>{running=false;if(timer){clearInterval(timer);timer=null}if(deepAnalysisComplete&&deepFinalResult){sessionSummaryText.textContent=deepFinalResult.summary||fallbackV2Narrative(deepFinalResult.events||[]);renderDeepSessionFacts(deepFinalResult.events||[]);sessionModal.hidden=false}else showSessionSummary({finalPass:true})})
+sessionSummaryButton.addEventListener('click',()=>{if(deepAnalysisComplete&&deepFinalResult){sessionSummaryText.textContent=deepFinalResult.summary||fallbackV2Narrative(deepFinalResult.events||[]);renderDeepSessionFacts(deepFinalResult.events||[]);sessionModal.hidden=false}else showSessionSummary({finalPass:false})})
+exportDebugButton.addEventListener('click',()=>deepDebugRecorder&&currentSource?.analysisMode==='recorded_deep_v3'?deepDebugRecorder.download():debugRecorder.download())
 closeSessionModal.addEventListener('click',()=>sessionModal.hidden=true)
 sessionModal.addEventListener('click',event=>{if(event.target===sessionModal)sessionModal.hidden=true})
 languageSelect.addEventListener('change',applyLanguage)

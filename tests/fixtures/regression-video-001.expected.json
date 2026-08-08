@@ -1,0 +1,18 @@
+{
+  "fixture": "regression-video-001",
+  "video": "IMG_5760.MOV",
+  "duration": 101.5,
+  "real_persistent_dogs": 2,
+  "beats": [
+    {"id":"initial_rest","start":0,"end":12,"required":false,"actions":["resting","lying_down"]},
+    {"id":"brown_pet_roll","start":12,"end":20,"required":true,"actions":["petting","rolling"],"tolerance":4},
+    {"id":"leaves_couch","start":37,"end":41,"required":true,"actions":["jumping_off"],"tolerance":3},
+    {"id":"floor_person_interaction","start":40,"end":45,"required":true,"actions":["approaching_person","person_dog_interaction","rear_up"],"tolerance":4},
+    {"id":"returns_couch","start":48,"end":53,"required":true,"actions":["jumping_on"],"tolerance":3},
+    {"id":"cavalier_petting","start":64,"end":71,"required":true,"actions":["petting"],"tolerance":4},
+    {"id":"toy_presented_grabbed","start":87,"end":94,"required":true,"actions":["object_presented","mouth_contact","picking_up"],"tolerance":4},
+    {"id":"toy_play","start":92,"end":98,"required":true,"actions":["holding","playing","tugging"],"tolerance":4}
+  ],
+  "forbidden": ["persistent_dog_3", "bed_transition", "camera_relative_story_motion"],
+  "acceptance": {"required_groups_min":6,"high_salience_summary_coverage_min":0.75}
+}

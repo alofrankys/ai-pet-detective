@@ -1,0 +1,45 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import {fileURLToPath} from 'node:url'
+import {
+  estimateGlobalTranslation,compensateSubjectMotionV3,PersistentSurfaceMap,PersistentIdentityManager,
+  TemporalPostureClassifier,validateStructuredVision,conservativeVisionFallback,generateCandidateIntervals,
+  evaluateRegressionV001
+} from '../public/deep-video-v3.js'
+import {analyseDeepWindow} from '../studio.mjs'
+
+const here=path.dirname(fileURLToPath(import.meta.url))
+const fixture=JSON.parse(fs.readFileSync(path.resolve(here,'../../tests/fixtures/regression-video-001.expected.json'),'utf8'))
+
+function texture(width=80,height=80){const data=new Uint8Array(width*height);for(let y=0;y<height;y++)for(let x=0;x<width;x++)data[y*width+x]=(x*17+y*29+(x*y)%97)%256;return data}
+function shifted(input,dx,dy,width=80,height=80){const output=new Uint8Array(input.length);for(let y=0;y<height;y++)for(let x=0;x<width;x++){const px=x-dx,py=y-dy;output[y*width+x]=px>=0&&px<width&&py>=0&&py<height?input[py*width+px]:0}return output}
+const descriptor=(hue=0)=>({histogram:Array.from({length:20},(_,index)=>index===hue?1:0),shape:[.4,.3,.2,.2]})
+
+test('camera pan is recovered from multiple static background features',()=>{const previous=texture(),current=shifted(previous,4,-3),motion=estimateGlobalTranslation(previous,current,{width:80,height:80,maxShift:7});assert.ok(Math.abs(motion.dx-.05)<.014);assert.ok(Math.abs(motion.dy+.0375)<.014);assert.ok(motion.inliers>100);assert.ok(motion.confidence>.25)})
+test('static dog with moving camera has near-zero residual motion',()=>{const residual=compensateSubjectMotionV3({dx:.05,dy:-.02},{dx:.05,dy:-.02,confidence:.8});assert.ok(residual.magnitude<1e-6)})
+test('moving dog with static camera retains subject motion',()=>{const residual=compensateSubjectMotionV3({dx:.06,dy:0},{dx:0,dy:0,confidence:.8});assert.ok(Math.abs(residual.dx-.06)<1e-6)})
+test('camera and dog moving together preserve only residual movement',()=>{const residual=compensateSubjectMotionV3({dx:.08,dy:.01},{dx:.05,dy:.01,confidence:.8});assert.ok(Math.abs(residual.dx-.03)<1e-6)})
+
+test('alternating couch and bed labels on one geometry create no transition',()=>{const map=new PersistentSurfaceMap({confirmFrames:3,relationFrames:2}),dog={subject_id:'subject_1',box:[.25,.28,.55,.62]};for(let frame=0;frame<8;frame++){map.updateDetections([{label:frame%2?'bed':'couch',score:.8,box:[.18,.2,.72,.72]}],frame*.2);assert.equal(map.updateRelation(dog,frame*.2),null)}assert.equal(map.entities.size,1)})
+test('leaving and returning to a persistent couch create one event each',()=>{const map=new PersistentSurfaceMap({confirmFrames:2,relationFrames:2}),on={subject_id:'subject_1',box:[.25,.28,.55,.62]},floor={subject_id:'subject_1',box:[.76,.45,.96,.9]};for(let frame=0;frame<4;frame++){map.updateDetections([{label:'couch',score:.9,box:[.18,.2,.72,.72]}],frame*.2);map.updateRelation(on,frame*.2)}let off=null;for(let frame=4;frame<7;frame++)off=map.updateRelation(floor,frame*.2)||off;assert.equal(off.action,'jumping_off');let back=null;for(let frame=7;frame<10;frame++)back=map.updateRelation(on,frame*.2)||back;assert.equal(back.action,'jumping_on')})
+
+test('lost dog with a new temporary track revives the persistent subject',()=>{const manager=new PersistentIdentityManager({newSubjectFrames:2,newSubjectSeconds:10,matchThreshold:.4}),box=[.2,.2,.5,.7];manager.update([{label:'dog',track_id:'track_1',box,descriptor:descriptor(2)}],0);const created=manager.update([{label:'dog',track_id:'track_1',box,descriptor:descriptor(2)}],.2)[0];assert.equal(created.subject_id,'subject_1');const revived=manager.update([{label:'dog',track_id:'track_9',box:[.22,.2,.52,.7],descriptor:descriptor(2)}],2)[0];assert.equal(revived.subject_id,'subject_1');assert.equal(revived.identity_decision,'revived');assert.equal(manager.subjects.size,1)})
+
+test('temporal posture classifier implements stable sitting',()=>{const points=Array.from({length:17},()=>({x:0,y:0,score:0}));points[3]={x:.4,y:.3,score:.9};points[4]={x:.6,y:.65,score:.9};for(const index of [7,10])points[index]={x:.42,y:.85,score:.85};for(const index of [13,16])points[index]={x:.62,y:.72,score:.85};const classifier=new TemporalPostureClassifier({confirmFrames:2,minConfidence:.5});classifier.update('subject_1',points,0);const stable=classifier.update('subject_1',points,.3);assert.equal(stable.stable,'sitting')})
+
+test('malformed structured response is explicit and useful fallback is retained',()=>{const invalid=validateStructuredVision('The dog is tail wagging and is being petted.',{interval:{start:2,end:5},knownSubjects:['subject_1']});assert.equal(invalid.valid,false);assert.ok(invalid.errors.includes('invalid_json_or_schema'));const fallback=conservativeVisionFallback('The dog is tail wagging and is being petted.',{interval:{start:2,end:5},actor:'subject_1'});assert.deepEqual(new Set(fallback.map(event=>event.action)),new Set(['tail_wagging','petting']))})
+test('valid structured response produces persistent-reference events',()=>{const parsed=validateStructuredVision(JSON.stringify({events:[{actor_ref:'subject_1',action:'petting',target_ref:'person_1',start:3,end:5,confidence:.86,evidence:['hand repeatedly contacts the dog']}],context:{environment:'indoor',scene:'home'}}),{interval:{start:2,end:6},knownSubjects:['subject_1','person_1']});assert.equal(parsed.valid,true);assert.equal(parsed.events.length,1);assert.equal(parsed.events[0].actor,'subject_1')})
+test('malformed VisionPsy JSON is retried once and repaired',async()=>{const replies=['not valid json but the dog is being petted',JSON.stringify({events:[{actor_ref:'subject_1',action:'petting',target_ref:'person_1',start:3,end:5,confidence:.86,evidence:['repeated hand contact']}],context:{environment:'indoor',scene:'home'}})],calls=[];const result=await analyseDeepWindow({language:'en',interval:{start:2,end:6},sequence:{image:'data:image/jpeg;base64,AA=='},knownSubjects:['subject_1','person_1']},async messages=>{calls.push(messages);return replies.shift()});assert.equal(calls.length,2);assert.equal(result.metrics.repaired_responses,1);assert.equal(result.events.length,1);assert.ok(result.decisions.some(item=>item.status==='accepted'))})
+test('candidate generation adds coverage and keeps every review window bounded',()=>{const observations=Array.from({length:80},(_,index)=>({time:index*.2,subjects:index?[{subject_id:'subject_1',world_motion:{magnitude:.08}}]:[],events:[]})),windows=generateCandidateIntervals(observations,30,{coverageSeconds:10});assert.ok(windows.some(item=>item.reasons.includes('world_motion')));assert.ok(windows.some(item=>item.reasons.includes('temporal_coverage')));assert.ok(windows.every(item=>item.end-item.start<=10.001))} )
+
+test('golden regression evaluator enforces six of seven groups and forbidden events',()=>{const actual=[
+  {id:'1',start:14,end:18,actor:'subject_1',action:'petting',confidence:.9,description:'petted'},
+  {id:'2',start:38,end:40,actor:'subject_1',action:'jumping_off',confidence:.9,description:'jumps off'},
+  {id:'3',start:41,end:44,actor:'subject_1',action:'person_dog_interaction',confidence:.8,description:'interacts'},
+  {id:'4',start:49,end:52,actor:'subject_1',action:'jumping_on',confidence:.9,description:'jumps on'},
+  {id:'5',start:66,end:69,actor:'subject_2',action:'petting',confidence:.9,description:'petted'},
+  {id:'6',start:89,end:93,actor:'subject_1',action:'mouth_contact',confidence:.85,description:'grabs toy'},
+  {id:'7',start:94,end:97,actor:'subject_1',action:'playing',confidence:.85,description:'plays'}
+],metrics=evaluateRegressionV001(actual,fixture);assert.equal(metrics.required_matched,7);assert.equal(metrics.persistent_dog_identities,2);assert.equal(metrics.false_bed_transitions,0);assert.equal(metrics.camera_motion_story_events,0);assert.equal(metrics.pass,true)})
