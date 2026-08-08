@@ -10,6 +10,23 @@ const iou=(a,b)=>{const x1=Math.max(a[0],b[0]),y1=Math.max(a[1],b[1]),x2=Math.mi
 export const DEEP_VIDEO_V3_VERSION='3.0.0'
 export const V3_ACTIONS=new Set(['petting','lying_down','standing_up','sitting_down','jumping_off','jumping_on','approaching_person','rear_up','tail_wagging','sniffing','object_presented','mouth_contact','picking_up','holding','carrying','playing','tugging','dropping','dog_dog_interaction','person_dog_interaction','resting','walking','running','rolling','other'])
 export const V3_HIGH_SPECIFICITY=new Set(['biting','eating','drinking','urinating','defecating'])
+const ALL_V3_ACTIONS=new Set([...V3_ACTIONS,...V3_HIGH_SPECIFICITY])
+const ACTION_TOKEN='(?:petting|lying_down|standing_up|sitting_down|jumping_off|jumping_on|approaching_person|rear_up|tail_wagging|sniffing|object_presented|mouth_contact|picking_up|holding|carrying|playing|tugging|dropping|dog_dog_interaction|person_dog_interaction|resting|walking|running|rolling|biting|eating|drinking|urinating|defecating|other)'
+const PIPE_ACTION_LIST=new RegExp(`${ACTION_TOKEN}\\s*\\|\\s*${ACTION_TOKEN}`,'i')
+
+export function isVisionSchemaEcho(value){
+  const text=String(value||'').trim()
+  if(!text)return false
+  return PIPE_ACTION_LIST.test(text)||/<\/?(?:action|actor|placeholder)>|\b(?:schema|template|placeholder|example json)\b/i.test(text)||/"action"\s*:\s*"(?:observed_action|allowed action|action_name|\.\.\.)"/i.test(text)||/"evidence"\s*:\s*\[\s*"(?:short observable reason|observable evidence|\.\.\.)"\s*\]/i.test(text)
+}
+
+export function cleanNaturalLanguageObservation(value){
+  const text=String(value||'').replace(/\s+/g,' ').trim()
+  if(text.length<12||text.length>500||isVisionSchemaEcho(text)||/```|[{}\[\]]/.test(text)||/"(?:events?|actor_ref|target_ref|action|confidence|evidence|context)"\s*:/i.test(text)||/^\s*(?:json|output|response)\s*:/i.test(text))return null
+  const sentence=(text.match(/^.{1,260}?(?:[.!?](?=\s|$)|$)/)?.[0]||'').trim()
+  if(sentence.length<12||PIPE_ACTION_LIST.test(sentence))return null
+  return sentence
+}
 
 function rgbToHsv(r,g,b){
   r/=255;g/=255;b/=255;const max=Math.max(r,g,b),min=Math.min(r,g,b),delta=max-min;let h=0
@@ -97,11 +114,11 @@ export function compensateSubjectMotionV3(observed={},camera={}){const valid=Num
 
 const SURFACE_LABELS=new Set(['couch','bed','chair','bench','dining table'])
 export class PersistentSurfaceMap{
-  constructor({confirmFrames=4,switchMargin=.22,relationFrames=3}={}){Object.assign(this,{confirmFrames,switchMargin,relationFrames});this.entities=new Map();this.relations=new Map();this.nextId=1}
+  constructor({confirmFrames=4,switchMargin=.22,relationFrames=3,relationSeconds=.35}={}){Object.assign(this,{confirmFrames,switchMargin,relationFrames,relationSeconds});this.entities=new Map();this.relations=new Map();this.nextId=1}
   updateDetections(detections,time){
-    for(const detection of detections.filter(item=>SURFACE_LABELS.has(item.label))){let entity=[...this.entities.values()].filter(item=>time-item.lastSeen<8).sort((a,b)=>iou(b.box,detection.box)-iou(a.box,detection.box))[0];if(!entity||iou(entity.box,detection.box)<.28){entity={surface_id:`surface_${this.nextId++}`,box:[...detection.box],type_probs:{},stable_type:'furniture',pending_type:null,stableFrames:0,geometry_history:[],lastSeen:time};this.entities.set(entity.surface_id,entity)}
+    for(const detection of detections.filter(item=>SURFACE_LABELS.has(item.label))){let entity=[...this.entities.values()].filter(item=>time-item.lastSeen<8).sort((a,b)=>iou(b.box,detection.box)-iou(a.box,detection.box))[0];if(!entity||iou(entity.box,detection.box)<.28){entity={surface_id:`surface_${this.nextId++}`,box:[...detection.box],type_probs:{},stable_type:'furniture_surface',pending_type:null,stableFrames:0,geometry_history:[],lastSeen:time};this.entities.set(entity.surface_id,entity)}
       for(const label of Object.keys(entity.type_probs))entity.type_probs[label]*=.92;entity.type_probs[detection.label]=(entity.type_probs[detection.label]||0)+clamp(detection.score||.5);entity.box=entity.box.map((value,index)=>value*.72+detection.box[index]*.28);entity.lastSeen=time;entity.geometry_history.push({time,box:[...detection.box],label:detection.label,confidence:detection.score});if(entity.geometry_history.length>40)entity.geometry_history.shift()
-      const ranked=Object.entries(entity.type_probs).sort((a,b)=>b[1]-a[1]),candidate=ranked[0]?.[0]||'furniture',runner=ranked[1]?.[1]||0,total=ranked.reduce((sum,item)=>sum+item[1],0)||1
+      const ranked=Object.entries(entity.type_probs).sort((a,b)=>b[1]-a[1]),runner=ranked[1]?.[1]||0,total=ranked.reduce((sum,item)=>sum+item[1],0)||1,topShare=(ranked[0]?.[1]||0)/total,ambiguousCouchBed=new Set(ranked.slice(0,2).map(item=>item[0])).size===2&&['couch','bed'].every(label=>ranked.slice(0,2).some(item=>item[0]===label))&&runner/(ranked[0]?.[1]||1)>.32,candidate=ambiguousCouchBed||topShare<.7?'furniture_surface':ranked[0]?.[0]||'furniture_surface'
       if(candidate===entity.stable_type){entity.pending_type=null;entity.stableFrames=0}
       else if((ranked[0][1]-runner)/total>=this.switchMargin){if(entity.pending_type===candidate)entity.stableFrames++;else{entity.pending_type=candidate;entity.stableFrames=1}if(entity.stableFrames>=this.confirmFrames){entity.stable_type=candidate;entity.pending_type=null;entity.stableFrames=0}}
       else{entity.pending_type=null;entity.stableFrames=0}
@@ -113,7 +130,7 @@ export class PersistentSurfaceMap{
     if(!subject.subject_id)return null;const candidate=this.relationFor(subject.box),state=this.relations.get(subject.subject_id)||{stable:null,pending:null,frames:0,since:time}
     if(candidate===state.stable){state.pending=null;state.frames=0;this.relations.set(subject.subject_id,state);return null}
     if(candidate!==state.pending){state.pending=candidate;state.frames=1;state.pendingSince=time;this.relations.set(subject.subject_id,state);return null}
-    state.frames++;if(state.frames<this.relationFrames){this.relations.set(subject.subject_id,state);return null}
+    state.frames++;if(state.frames<this.relationFrames||time-state.pendingSince<this.relationSeconds){this.relations.set(subject.subject_id,state);return null}
     const previous=state.stable,confirmationFrames=state.frames;state.stable=candidate;state.since=state.pendingSince;state.pending=null;state.frames=0;this.relations.set(subject.subject_id,state);if(!previous)return null
     const fromEntity=previous.startsWith('on:')?this.entities.get(previous.slice(3)):null,toEntity=candidate.startsWith('on:')?this.entities.get(candidate.slice(3)):null,action=fromEntity&&!toEntity?'jumping_off':!fromEntity&&toEntity?'jumping_on':'scene_change'
     return {id:`surface_${subject.subject_id}_${Math.round(time*1000)}`,start:state.pendingSince,end:time,actor:subject.subject_id,action,from:{surface:fromEntity?.stable_type||previous,surface_id:fromEntity?.surface_id||null},to:{surface:toEntity?.stable_type||candidate,surface_id:toEntity?.surface_id||null},confidence:clamp(.62+Math.min(.24,confirmationFrames*.06)),description:`${subject.subject_id} changes support from ${fromEntity?.stable_type||previous} to ${toEntity?.stable_type||candidate}.`,source:'surface-v3'}
@@ -161,15 +178,16 @@ export function generateCandidateIntervals(observations=[],duration=0,{coverageS
 }
 
 export function validateStructuredVision(value,{interval={start:0,end:0},knownSubjects=[]}={}){
+  if(typeof value==='string'&&isVisionSchemaEcho(value))return {valid:false,events:[],context:null,errors:['schema_echo_or_template']}
   const parsed=typeof value==='string'?(()=>{try{const cleaned=value.replace(/^```(?:json)?\s*|\s*```$/gi,'').trim(),start=cleaned.indexOf('{'),end=cleaned.lastIndexOf('}');return JSON.parse(cleaned.slice(start,end+1))}catch{return null}})():value
   if(!parsed||!Array.isArray(parsed.events))return {valid:false,events:[],context:null,errors:['invalid_json_or_schema']}
   const errors=[],events=[]
-  for(const raw of parsed.events){const action=canonicalAction(raw.action);if(!V3_ACTIONS.has(action)&&!V3_HIGH_SPECIFICITY.has(action)){errors.push(`unsupported_action:${raw.action}`);continue}const actor=String(raw.actor_ref||'').trim();if(actor&&knownSubjects.length&&!knownSubjects.includes(actor)&&!/^person_\d+$/.test(actor)){errors.push(`unknown_actor:${actor}`);continue}const confidence=clamp(raw.confidence);if(V3_HIGH_SPECIFICITY.has(action)&&confidence<.82){errors.push(`low_specificity_confidence:${action}`);continue}const start=Math.max(interval.start,Number(raw.start)||interval.start),end=Math.min(interval.end||Infinity,Math.max(start,Number(raw.end)||start));events.push(makeEvent({id:raw.id,actor,action,target:raw.target_ref||null,start,end,from:raw.surface_before?{surface:raw.surface_before}:null,to:raw.surface_after?{surface:raw.surface_after}:null,objects:raw.object_label?[{label:raw.object_label}]:[],confidence,importance:Math.min(1,(raw.importance??confidence)+.08),description:String(raw.description||raw.evidence?.[0]||`${actor} ${action}`).slice(0,260),source:'visionpsy-v3',evidence:{reasons:Array.isArray(raw.evidence)?raw.evidence:[]}}))}
+  for(const raw of parsed.events){const rawAction=String(raw.action||'').trim();if(isVisionSchemaEcho(JSON.stringify(raw))||PIPE_ACTION_LIST.test(rawAction)||!ALL_V3_ACTIONS.has(canonicalAction(rawAction))){errors.push(`unsupported_or_template_action:${raw.action}`);continue}const action=canonicalAction(rawAction),actor=String(raw.actor_ref||'').trim();if(actor&&knownSubjects.length&&!knownSubjects.includes(actor)&&!/^person_\d+$/.test(actor)){errors.push(`unknown_actor:${actor}`);continue}const confidence=clamp(raw.confidence);if(V3_HIGH_SPECIFICITY.has(action)&&confidence<.82){errors.push(`low_specificity_confidence:${action}`);continue}const observation=cleanNaturalLanguageObservation(raw.description||raw.evidence?.[0]||'');if((raw.description||raw.evidence?.length)&&!observation){errors.push(`invalid_observation:${action}`);continue}const start=Math.max(interval.start,Number(raw.start)||interval.start),end=Math.min(interval.end||Infinity,Math.max(start,Number(raw.end)||start));events.push(makeEvent({id:raw.id,actor,action,target:raw.target_ref||null,start,end,from:raw.surface_before?{surface:raw.surface_before}:null,to:raw.surface_after?{surface:raw.surface_after}:null,objects:raw.object_label?[{label:raw.object_label}]:[],confidence,importance:Math.min(1,(raw.importance??confidence)+.08),description:observation||`${actor||'subject'} ${action.replaceAll('_',' ')}`,source:'visionpsy-v3',evidence:{reasons:Array.isArray(raw.evidence)?raw.evidence.map(cleanNaturalLanguageObservation).filter(Boolean):[]}}))}
   return {valid:errors.length===0||events.length>0,events,context:parsed.context&&typeof parsed.context==='object'?parsed.context:null,errors}
 }
 
 const FALLBACK_PATTERNS=[['tail_wagging',/\b(?:tail wag\w*|wag\w* (?:its|the) tail|scodinzol\w*)\b/i],['petting',/\b(?:pet(?:s|ted|ting)?|accarezz\w*)\b/i],['lying_down',/\b(?:lies? down|lying down|si sdraia)\b/i],['standing_up',/\b(?:stands? up|gets? up|si alza)\b/i],['mouth_contact',/\b(?:mouth contact|grabs? (?:it|the object|the toy)|afferra\w*.*bocca)\b/i],['holding',/\b(?:holds? (?:the )?(?:toy|object)|tiene.*(?:gioco|oggetto))\b/i],['playing',/\b(?:plays? with|playing with|gioca con)\b/i],['sniffing',/\b(?:sniff\w*|annus\w*)\b/i]]
-export function conservativeVisionFallback(text,{interval={start:0,end:0},actor='subject_1',confidence=.72}={}){const events=[];for(const [action,pattern] of FALLBACK_PATTERNS)if(pattern.test(String(text||'')))events.push(makeEvent({start:interval.start,end:interval.end,actor,action,confidence,importance:.72,description:String(text).replace(/\s+/g,' ').trim().slice(0,220),source:'visionpsy-v3-fallback',evidence:{fallback:true}}));return events}
+export function conservativeVisionFallback(text,{interval={start:0,end:0},actor='subject_1',confidence=.72}={}){const observation=cleanNaturalLanguageObservation(text);if(!observation)return [];const events=[];for(const [action,pattern] of FALLBACK_PATTERNS)if(pattern.test(observation))events.push(makeEvent({start:interval.start,end:interval.end,actor,action,confidence,importance:.72,description:observation,source:'visionpsy-v3-fallback',evidence:{fallback:true}}));return events}
 
 export function reconcileV3Events(events=[],{sessionDuration=0,maxEvents=12}={}){
   const safe=events.map(event=>makeEvent(event)).filter(event=>!NOISE_ACTIONS.has(event.action)&&event.confidence>=.48)

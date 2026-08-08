@@ -5,7 +5,7 @@ import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { NOISE_ACTIONS, canonicalAction } from './public/narrative-engine-v2.js'
-import { validateStructuredVision, conservativeVisionFallback, reconcileV3Events } from './public/deep-video-v3.js'
+import { validateStructuredVision, conservativeVisionFallback, reconcileV3Events, cleanNaturalLanguageObservation, isVisionSchemaEcho } from './public/deep-video-v3.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '..')
@@ -351,14 +351,16 @@ function mergeV2Events(items=[]){
 }
 
 function deterministicV2Summary(events=[],language='en'){
-  const descriptions=events.map(event=>event.description.replace(/[.!?]+$/,'').trim()).filter(Boolean).slice(0,8)
+  const descriptions=events.map(event=>cleanNaturalLanguageObservation(event.description)||`${event.actor||(language==='it'?'Il soggetto':'The subject')} ${String(event.action||'acts').replaceAll('_',' ')}`).map(description=>description.replace(/[.!?]+$/,'').trim()).filter(Boolean).slice(0,8)
   if(!descriptions.length)return null
   const lower=text=>text?text.charAt(0).toLowerCase()+text.slice(1):text
   return descriptions.map((description,index)=>index===0?(language==='it'?`Nel video, ${lower(description)}`:`In the video, ${lower(description)}`):index===1?(language==='it'?`Poi ${lower(description)}`:`Then ${lower(description)}`):(language==='it'?`Successivamente ${lower(description)}`:`Later ${lower(description)}`)).join('. ')+'.'
 }
 
+export function hasNarrativeSchemaContamination(text){const value=String(text||'').trim();return Boolean(value)&&(isVisionSchemaEcho(value)||/```|\{\s*"?events?"?\s*:|"actor_ref"|"action"\s*:|"target_ref"|\[\s*\{|\}\s*,?\s*\{|\b(?:schema|template|placeholder|example json|model output)\b/i.test(value))}
+
 function groundedV2Summary(text,events=[]){
-  if(!text||text.length>=800||/^(?:```|json\b|[\[{])/i.test(text)||/"(?:id|title|detail|events?|action|actor|target|objects?)"\s*:/i.test(text))return false
+  if(!text||text.length>=800||hasNarrativeSchemaContamination(text)||/^(?:json\b|[\[{])/i.test(text)||/"(?:id|title|detail|events?|action|actor|target|objects?)"\s*:/i.test(text))return false
   if(/\b(happy|sad|aggressiv|felice|triste|arrabbiat|no other|not observed|non (?:è|sono) stato osservato)\b/i.test(text))return false
   const evidence=JSON.stringify(events).toLowerCase()
   const subjects=text.match(/\b(?:dog|cane|cat|gatto|person|persona)\s+\d+\b/gi)||[]
@@ -374,6 +376,8 @@ function groundedV2Summary(text,events=[]){
   const actions=new Set(events.map(event=>event.action))
   return !Object.entries(actionTerms).some(([action,pattern])=>pattern.test(text)&&!actions.has(action))
 }
+
+export function sanitizeFinalNarrative(text,events=[],language='en'){const candidate=String(text||'').replace(/^```(?:json)?|```$/gi,'').trim();return groundedV2Summary(candidate,events)?candidate:deterministicV2Summary(events,language)}
 
 function selectV2StoryEvents(items=[],sessionDuration=0,maxEvents=8){
   const events=mergeV2Events(items).filter(event=>event.confidence>=.48),duration=sessionDuration||Math.max(...events.map(event=>event.end),1)
@@ -392,7 +396,7 @@ async function summarizeV2Events(items=[],language='en',context={},sessionDurati
   const prompt=language==='it'
     ? `Sei soltanto il realizzatore linguistico di una storia video. Scrivi un paragrafo breve, concreto e cronologico usando esclusivamente gli eventi JSON forniti. Conserva attore, azione, oggetto, superfici e ordine temporale. Puoi unire eventi continui ma non aggiungere emozioni, intenzioni, cause, oggetti o azioni assenti. Non menzionare detector, confidenza o dati mancanti. Contesto ipotetico (usalo solo se non contraddice gli eventi): ${JSON.stringify(context)}. Eventi: ${JSON.stringify(facts)}`
     : `You are only the language realizer for a video story. Write one short, concrete chronological paragraph using exclusively the supplied JSON events. Preserve actor, action, object, surfaces and temporal order. You may combine continuous events but must not add emotions, intent, causes, objects or actions absent from the events. Do not mention detectors, confidence or missing data. Hypothetical context (use only if consistent with events): ${JSON.stringify(context)}. Events: ${JSON.stringify(facts)}`
-  try{const raw=await callVisionPsy([{role:'user',content:prompt}],220),text=String(extractJson(raw)?.summary||raw).replace(/^```(?:json)?|```$/gi,'').trim();return groundedV2Summary(text,events)?text:deterministic}catch{return deterministic}
+  try{const raw=await callVisionPsy([{role:'user',content:prompt}],220),text=String(extractJson(raw)?.summary||raw).trim();return sanitizeFinalNarrative(text,events,language)||deterministic}catch{return deterministic}
 }
 
 async function reviewEvidenceSequence(sequence,candidates=[],language='en'){
@@ -417,8 +421,9 @@ async function finalizeV2Session(input={}){
   return {version:2,events,summary,context,reviews}
 }
 
-const deepV3ActionSchema='petting|lying_down|standing_up|sitting_down|jumping_off|jumping_on|approaching_person|rear_up|tail_wagging|sniffing|object_presented|mouth_contact|picking_up|holding|carrying|playing|tugging|dropping|dog_dog_interaction|person_dog_interaction|resting|walking|running|rolling|other'
-const deepV3Schema=`{"events":[{"actor_ref":"subject_1","action":"${deepV3ActionSchema}","target_ref":null,"start":0.0,"end":1.0,"surface_before":null,"surface_after":null,"object_label":null,"confidence":0.0,"evidence":["short observable reason"]}],"context":{"environment":"unknown","scene":"unknown"}}`
+const deepV3Actions=[...new Set(['petting','lying_down','standing_up','sitting_down','jumping_off','jumping_on','approaching_person','rear_up','tail_wagging','sniffing','object_presented','mouth_contact','picking_up','holding','carrying','playing','tugging','dropping','dog_dog_interaction','person_dog_interaction','resting','walking','running','rolling','biting','eating','drinking','urinating','defecating','other'])]
+const deepV3ActionInstruction=`Choose exactly one action name per event from: ${deepV3Actions.join(', ')}.`
+const deepV3Schema='{"events":[{"actor_ref":"subject_1","action":"observed_action","target_ref":null,"start":0.0,"end":1.0,"surface_before":null,"surface_after":null,"object_label":null,"confidence":0.0,"evidence":["what is visibly observed"]}],"context":{"environment":"unknown","scene":"unknown"}}'
 
 function deepV3Metrics(){return {vision_calls:0,useful_vision_responses:0,valid_structured_responses:0,repaired_responses:0,fallback_parsed_responses:0,discarded_responses:0,structured_events_created:0}}
 function usefulVisionText(raw){const text=String(raw||'').trim();return text.length>12&&!/^same\.?$/i.test(text)&&!/^\{?\s*"?events"?\s*:\s*\[\s*\]/i.test(text)}
@@ -427,30 +432,32 @@ export async function analyseDeepWindow(input={},visionCall=callVisionPsy){
   const metrics=deepV3Metrics(),decisions=[],interval={start:Math.max(0,Number(input.interval?.start)||0),end:Math.max(0,Number(input.interval?.end)||0)},knownSubjects=Array.isArray(input.knownSubjects)?input.knownSubjects.slice(0,12):[],image=input.sequence?.image
   if(!/^data:image\/jpeg;base64,/.test(String(image||'')))throw new Error('Deep window requires a JPEG contact sheet')
   const language=input.language==='it'?'it':'en',grounding=language==='it'
-    ? `Analizza questa sequenza cronologica PRIMA→AZIONE→DOPO relativa all'intervallo ${interval.start.toFixed(2)}–${interval.end.toFixed(2)} secondi. Soggetti persistenti consentiti: ${knownSubjects.join(', ')||'nessuno'}. Restituisci soltanto JSON valido conforme allo schema. Ogni evento deve essere visibile in più fotogrammi e usare actor_ref/target_ref forniti. Il movimento della fotocamera non è un'azione. Non dedurre emozioni. Un oggetto generico è ammesso se persiste. Il nome di superficie richiede una relazione visiva stabile, non una singola etichetta. Se non c'è un evento affidabile restituisci events vuoto. Schema: ${deepV3Schema}`
-    : `Analyse this chronological BEFORE→ACTION→AFTER sequence for interval ${interval.start.toFixed(2)}–${interval.end.toFixed(2)} seconds. Allowed persistent subjects: ${knownSubjects.join(', ')||'none'}. Return only valid JSON matching the schema. Every event must be visible across multiple frames and use the supplied actor_ref/target_ref values. Camera movement is not an action. Infer no emotions. A generic persistent object is allowed. A surface name requires a stable visual relation, not one detector label. Return an empty events array when nothing is reliable. Schema: ${deepV3Schema}`
+    ? `Analizza questa sequenza cronologica PRIMA→AZIONE→DOPO relativa all'intervallo ${interval.start.toFixed(2)}–${interval.end.toFixed(2)} secondi. Soggetti persistenti consentiti: ${knownSubjects.join(', ')||'nessuno'}. Restituisci soltanto JSON valido conforme allo schema. Ogni evento deve essere visibile in più fotogrammi e usare actor_ref/target_ref forniti. Il movimento della fotocamera non è un'azione. Non dedurre emozioni. Un oggetto generico è ammesso se persiste. Il nome di superficie richiede una relazione visiva stabile, non una singola etichetta. Se non c'è un evento affidabile restituisci events vuoto. ${deepV3ActionInstruction} Struttura JSON: ${deepV3Schema}`
+    : `Analyse this chronological BEFORE→ACTION→AFTER sequence for interval ${interval.start.toFixed(2)}–${interval.end.toFixed(2)} seconds. Allowed persistent subjects: ${knownSubjects.join(', ')||'none'}. Return only valid JSON matching the schema. Every event must be visible across multiple frames and use the supplied actor_ref/target_ref values. Camera movement is not an action. Infer no emotions. A generic persistent object is allowed. A surface name requires a stable visual relation, not one detector label. Return an empty events array when nothing is reliable. ${deepV3ActionInstruction} JSON structure: ${deepV3Schema}`
   metrics.vision_calls++;let raw=await visionCall([{role:'user',content:[{type:'image_url',image_url:{url:image}},{type:'text',text:grounding}]}],420);if(usefulVisionText(raw))metrics.useful_vision_responses++
-  let validated=validateStructuredVision(raw,{interval,knownSubjects}),repaired=false
-  if(!validated.valid){
-    decisions.push(...validated.errors.map(reason=>({status:'rejected',stage:'initial_parse',reason,interval})));metrics.vision_calls++
-    const repairPrompt=language==='it'?`Ripara l'output seguente in JSON rigorosamente valido senza aggiungere fatti. Usa soltanto soggetti consentiti e limita i timestamp a ${interval.start}–${interval.end}. Output malformato: ${String(raw).slice(0,5000)}. Schema: ${deepV3Schema}`:`Repair the following output into strict valid JSON without adding facts. Use only allowed subjects and keep timestamps within ${interval.start}–${interval.end}. Malformed output: ${String(raw).slice(0,5000)}. Schema: ${deepV3Schema}`
+  const initialSchemaEcho=isVisionSchemaEcho(raw),fallbackObservation=cleanNaturalLanguageObservation(raw);let validated=validateStructuredVision(raw,{interval,knownSubjects}),repaired=false,repairAttempted=false
+  if(initialSchemaEcho){metrics.discarded_responses++;decisions.push({status:'rejected',stage:'initial_parse',reason:'schema_echo_or_template',interval})}
+  if(!validated.valid&&!initialSchemaEcho){
+    decisions.push(...validated.errors.map(reason=>({status:'rejected',stage:'initial_parse',reason,interval})));metrics.vision_calls++;repairAttempted=true
+    const repairPrompt=language==='it'?`Ripara l'output seguente in JSON rigorosamente valido senza aggiungere fatti. Usa soltanto soggetti consentiti e limita i timestamp a ${interval.start}–${interval.end}. Output malformato: ${String(raw).slice(0,5000)}. ${deepV3ActionInstruction} Struttura JSON: ${deepV3Schema}`:`Repair the following output into strict valid JSON without adding facts. Use only allowed subjects and keep timestamps within ${interval.start}–${interval.end}. Malformed output: ${String(raw).slice(0,5000)}. ${deepV3ActionInstruction} JSON structure: ${deepV3Schema}`
     const repairedRaw=await visionCall([{role:'user',content:repairPrompt}],420),repairedValidation=validateStructuredVision(repairedRaw,{interval,knownSubjects});raw=repairedRaw;if(repairedValidation.valid){validated=repairedValidation;repaired=true;metrics.repaired_responses++}else decisions.push(...repairedValidation.errors.map(reason=>({status:'rejected',stage:'repair_parse',reason,interval})))
   }
   let events=validated.valid?validated.events:[]
   if(validated.valid)metrics.valid_structured_responses++
-  if(!events.length&&usefulVisionText(raw)){
-    const actor=knownSubjects.find(value=>/^subject_/.test(value))||'subject_1',fallback=conservativeVisionFallback(raw,{interval,actor,confidence:.72})
+  if(!events.length&&fallbackObservation&&!initialSchemaEcho){
+    const actor=knownSubjects.find(value=>/^subject_/.test(value))||'subject_1',fallback=conservativeVisionFallback(fallbackObservation,{interval,actor,confidence:.72})
     if(fallback.length){events=fallback;metrics.fallback_parsed_responses++;decisions.push(...fallback.map(event=>({status:'accepted',stage:'fallback',event_id:event.id,reason:'conservative_recognizable_action'})))}
     else{metrics.discarded_responses++;decisions.push({status:'rejected',stage:'fallback',reason:'useful_response_without_grounded_recognizable_action',raw:String(raw).slice(0,800),interval})}
   }
   metrics.structured_events_created=events.length
   decisions.push(...events.filter(event=>!decisions.some(item=>item.event_id===event.id)).map(event=>({status:'accepted',stage:repaired?'repair':'structured',event_id:event.id,reason:'validated_structured_event'})))
-  return {version:3,events,context:validated.context||{},metrics,decisions,repair_attempted:!validated.valid||repaired,raw_response:visionpsyDebug?String(raw).slice(0,5000):undefined}
+  return {version:3,events,context:validated.context||{},metrics,decisions,repair_attempted:repairAttempted,raw_response:visionpsyDebug?String(raw).slice(0,5000):undefined}
 }
 
 async function finalizeDeepV3(input={}){
-  const duration=Math.max(0,Number(input.sessionDuration)||0),knownSubjects=new Set((input.identity||[]).map(item=>item.subject_id).filter(Boolean)),identityReconciliation=[],safe=[]
-  for(const raw of Array.isArray(input.events)?input.events:[]){const actor=String(raw.actor||raw.actor_ref||'');if(/^subject_/.test(actor)&&knownSubjects.size&&!knownSubjects.has(actor)){identityReconciliation.push({event_id:raw.id,status:'rejected',reason:'unknown_persistent_subject',actor});continue}safe.push(raw)}
+  const duration=Math.max(0,Number(input.sessionDuration)||0),knownSubjects=new Set((input.identity||[]).map(item=>item.subject_id).filter(Boolean)),identityReconciliation=[],safe=[],inputEvents=Array.isArray(input.events)?input.events:[],surfaceById=new Map((Array.isArray(input.surfaces)?input.surfaces:[]).map(surface=>[surface.surface_id,surface])),geometricTransitions=inputEvents.filter(event=>event.source==='surface-v3'&&['jumping_on','jumping_off'].includes(event.action))
+  const stableSurface=reference=>{if(!reference||typeof reference!=='object')return reference;const entity=surfaceById.get(reference.surface_id);return entity?{...reference,surface:entity.stable_type||'furniture_surface'}:reference}
+  for(const original of inputEvents){let raw=original,actor=String(raw.actor||raw.actor_ref||'');if(/^subject_/.test(actor)&&knownSubjects.size&&!knownSubjects.has(actor)){identityReconciliation.push({event_id:raw.id,status:'rejected',reason:'unknown_persistent_subject',actor});continue}if(hasNarrativeSchemaContamination(raw.description)){identityReconciliation.push({event_id:raw.id,status:'rejected',reason:'schema_contaminated_description',actor});continue}if(['jumping_on','jumping_off'].includes(raw.action)){const geometric=raw.source==='surface-v3'?raw:geometricTransitions.find(candidate=>candidate.actor===actor&&candidate.action===raw.action&&Math.max(candidate.start,raw.start)<=Math.min(candidate.end,raw.end)+1.5);if(!geometric){identityReconciliation.push({event_id:raw.id,status:'rejected',reason:'support_transition_without_geometric_change',actor});continue}const from=stableSurface(geometric.from),to=stableSurface(geometric.to);raw={...raw,from,to,description:`${actor||'The subject'} changes support from ${from?.surface||'floor'} to ${to?.surface||'floor'}.`}}safe.push(raw)}
   const reconciled=reconcileV3Events(safe,{sessionDuration:duration,maxEvents:12}),surfaceReconciliation=[]
   for(const event of reconciled.events){if(['jumping_on','jumping_off'].includes(event.action)){const fromId=event.from?.surface_id,toId=event.to?.surface_id;if(fromId&&toId&&fromId===toId){surfaceReconciliation.push({event_id:event.id,status:'rejected',reason:'same_surface_entity_label_flip'});event.confidence=0}}}
   const events=reconciled.events.filter(event=>event.confidence>=.48),story=selectV2StoryEvents(events,duration,12),summary=await summarizeV2Events(story,input.language==='it'?'it':'en',input.context||{},duration)
