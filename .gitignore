@@ -5,3 +5,7 @@ __pycache__/
 data/*.db
 data/captures/
 data/reports/
+models/*.onnx
+models/*.gguf
+models/*.task
+qvac-worker/node_modules/

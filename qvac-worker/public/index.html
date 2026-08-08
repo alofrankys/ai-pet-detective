@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VisionPsy Studio</title><link rel="stylesheet" href="/styles.css"></head>
+<body>
+  <main class="studio">
+    <header class="topbar">
+      <div><span class="eyebrow">VISIONPSY</span><h1>Live Studio</h1></div>
+      <div class="top-actions">
+        <label class="compact-control"><span data-i18n="language">Language</span><select id="languageSelect"><option value="en">English</option><option value="it">Italiano</option></select></label>
+        <label class="compact-control toggle"><input id="overlayToggle" type="checkbox" checked><span data-i18n="labels">Labels</span></label>
+        <div class="status"><span id="statusDot"></span><span id="statusText">Starting engine…</span></div>
+      </div>
+    </header>
+    <section class="stage">
+      <video id="camera" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div id="emptyState" class="empty-state"><strong data-i18n="heroTitle">Make the scene readable.</strong><span data-i18n="heroCopy">Use the camera or analyse a recorded video.</span><div class="source-actions"><button id="startButton" data-i18n="startCamera">Start camera</button><button id="fileButton" class="secondary" data-i18n="openVideo">Open video</button></div></div>
+    </section>
+    <section class="lower">
+      <div class="filter-row" aria-label="Visible subjects">
+        <button class="filter active" data-filter="all" data-i18n="all">All</button><button class="filter" data-filter="person" data-i18n="people">People</button><button class="filter" data-filter="animal" data-i18n="animals">Animals</button><button class="filter" data-filter="object" data-i18n="objects">Objects</button>
+      </div>
+      <div class="scene-line"><span class="section-label" data-i18n="scene">SCENE</span><strong id="sceneText">Waiting for a source</strong><span id="sceneConfidence"></span></div>
+      <div class="detected-line"><span class="section-label" data-i18n="detected">DETECTED</span><div id="detectedList" class="detected-list"><span>—</span></div></div>
+      <div class="timeline-head"><span class="section-label" data-i18n="recentEvents">RECENT EVENTS</span><span id="fps">—</span></div>
+      <div id="timeline" class="timeline" aria-live="polite"></div>
+    </section>
+  </main>
+  <canvas id="capture" width="640" height="640" hidden></canvas>
+  <input id="videoFile" type="file" accept="video/*" hidden>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
