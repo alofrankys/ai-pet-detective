@@ -14,6 +14,8 @@ import {
   TemporalPostureClassifier,
   DeepVideoDebugRecorder,
   appearanceDescriptor,
+  orderedSemanticFrameTimestamps,
+  fitAspectPreservingDimensions,
   generateCandidateIntervals,
   reconcileV3Events
 } from './deep-video-v3.js'
@@ -966,14 +968,10 @@ async function deepPoseFor(box){
 }
 
 function deepThumbnail(){const thumb=document.createElement('canvas');thumb.width=320;thumb.height=180;thumb.getContext('2d').drawImage(video,0,0,320,180);return thumb.toDataURL('image/jpeg',.58)}
-function loadDeepImage(source){return new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=reject;image.src=source})}
-async function deepContactSheet(interval,observations){
-  const inside=observations.filter(item=>item.time>=interval.start&&item.time<=interval.end),pool=inside.length?inside:[...observations].sort((a,b)=>Math.abs(a.time-(interval.start+interval.end)/2)-Math.abs(b.time-(interval.start+interval.end)/2)).slice(0,4),count=Math.max(4,Math.min(8,Math.ceil(Math.max(1,interval.end-interval.start)*1.5))),selected=[]
-  for(let index=0;index<count;index++){const target=interval.start+(interval.end-interval.start)*(count===1?0:index/(count-1)),closest=[...pool].sort((a,b)=>Math.abs(a.time-target)-Math.abs(b.time-target))[0];if(closest&&!selected.includes(closest))selected.push(closest)}
-  const columns=4,rows=Math.ceil(selected.length/columns),sheet=document.createElement('canvas');sheet.width=960;sheet.height=240*rows;const context=sheet.getContext('2d');context.fillStyle='#07100b';context.fillRect(0,0,sheet.width,sheet.height)
-  const images=await Promise.all(selected.map(item=>loadDeepImage(item.image)))
-  images.forEach((image,index)=>{const x=index%columns*240,y=Math.floor(index/columns)*240;context.drawImage(image,x,y,240,240);context.fillStyle='rgba(3,10,6,.78)';context.fillRect(x+7,y+7,74,22);context.fillStyle='#e4f5e9';context.font='600 12px sans-serif';context.fillText(`${selected[index].time.toFixed(1)}s`,x+14,y+22)})
-  return {image:sheet.toDataURL('image/jpeg',.78),frame_count:selected.length,timestamps:selected.map(item=>item.time)}
+async function deepSemanticFrameSequence(interval){
+  const duration=Math.max(0,interval.end-interval.start),count=Math.max(6,Math.min(8,Math.ceil(Math.max(1,duration)*1.2))),timestamps=orderedSemanticFrameTimestamps(interval,count),dimensions=fitAspectPreservingDimensions(video.videoWidth,video.videoHeight,640),frameCanvas=document.createElement('canvas'),frameContext=frameCanvas.getContext('2d');frameCanvas.width=dimensions.width;frameCanvas.height=dimensions.height
+  const frames=[];for(const timestamp of timestamps){await seekDeepVideo(timestamp);frameContext.drawImage(video,0,0,dimensions.width,dimensions.height);frames.push({timestamp,image:frameCanvas.toDataURL('image/jpeg',.8),width:dimensions.width,height:dimensions.height})}
+  return {frames}
 }
 
 function deepBoxCenter(box){return {x:(box[0]+box[2])/2,y:(box[1]+box[3])/2}}
@@ -1013,7 +1011,7 @@ async function runDeepRecordedAnalysis(){
   setDeepProgress(1,0,1);const candidates=generateCandidateIntervals(observations,duration);deepDebugRecorder.candidate_intervals=candidates;setDeepProgress(1,1,1)
   for(let index=0;index<candidates.length;index++){
     if(token!==deepAnalysisToken)return;const candidate=candidates[index]
-    try{const sequence=await deepContactSheet(candidate,observations),knownSubjects=[...identity.subjects.keys(),'person_1'],response=await fetch('/api/deep/analyse-window',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({language,interval:candidate,sequence,knownSubjects,context:currentContextPayload()})}),result=await response.json();if(!response.ok)throw new Error(result.error||'Deep semantic window failed');deepDebugRecorder.recordVision(result,candidate);semanticEvents.push(...(result.events||[]));setDeepProgress(2,index+1,candidates.length,`${t('deepReviewing')} ${index+1} / ${candidates.length}`)}catch(error){deepDebugRecorder.vision_metrics.discarded_responses++;deepDebugRecorder.dropped_events.push({status:'rejected',stage:'window_request',interval:{start:candidate.start,end:candidate.end},reason:String(error.message||error)});setDeepProgress(2,index+1,candidates.length,`${t('deepReviewing')} ${index+1} / ${candidates.length}`)}
+    try{const sequence=await deepSemanticFrameSequence(candidate),knownSubjects=[...identity.subjects.keys(),'person_1'],response=await fetch('/api/deep/analyse-window',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({language,interval:candidate,sequence,knownSubjects,context:currentContextPayload()})}),result=await response.json();if(!response.ok)throw new Error(result.error||'Deep semantic window failed');deepDebugRecorder.recordVision(result,candidate);semanticEvents.push(...(result.events||[]));setDeepProgress(2,index+1,candidates.length,`${t('deepReviewing')} ${index+1} / ${candidates.length}`)}catch(error){deepDebugRecorder.vision_metrics.discarded_responses++;deepDebugRecorder.dropped_events.push({status:'rejected',stage:'window_request',interval:{start:candidate.start,end:candidate.end},reason:String(error.message||error)});setDeepProgress(2,index+1,candidates.length,`${t('deepReviewing')} ${index+1} / ${candidates.length}`)}
   }
   deepDebugRecorder.semantic_events_before_reconciliation=semanticEvents;const local=reconcileV3Events(semanticEvents,{sessionDuration:duration,maxEvents:12});setDeepProgress(3,0,1)
   const finalResponse=await fetch('/api/deep/finalize',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({language,sessionDuration:duration,events:local.events,context:currentContextPayload(),identity:identity.snapshot(),surfaces:surfaces.snapshot(),candidates})}),finalResult=await finalResponse.json();if(!finalResponse.ok)throw new Error(finalResult.error||'Deep final reconciliation failed')
