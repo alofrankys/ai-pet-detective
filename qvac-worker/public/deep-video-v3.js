@@ -235,6 +235,49 @@ export function validateStructuredVision(value,{interval={start:0,end:0},knownSu
 const FALLBACK_PATTERNS=[['tail_wagging',/\b(?:tail wag\w*|wag\w* (?:its|the) tail|scodinzol\w*)\b/i],['petting',/\b(?:pet(?:s|ted|ting)?|accarezz\w*)\b/i],['lying_down',/\b(?:lies? down|lying down|si sdraia)\b/i],['standing_up',/\b(?:stands? up|gets? up|si alza)\b/i],['mouth_contact',/\b(?:mouth contact|grabs? (?:it|the object|the toy)|afferra\w*.*bocca)\b/i],['holding',/\b(?:holds? (?:the )?(?:toy|object)|tiene.*(?:gioco|oggetto))\b/i],['playing',/\b(?:plays? with|playing with|gioca con)\b/i],['sniffing',/\b(?:sniff\w*|annus\w*)\b/i]]
 export function conservativeVisionFallback(text,{interval={start:0,end:0},actor='subject_1',confidence=.72}={}){const observation=cleanNaturalLanguageObservation(text);if(!observation)return [];const events=[];for(const [action,pattern] of FALLBACK_PATTERNS)if(pattern.test(observation))events.push(makeEvent({start:interval.start,end:interval.end,actor,action,confidence,importance:.72,description:observation,source:'visionpsy-v3-fallback',evidence:{fallback:true}}));return events}
 
+const NATURAL_ACTION_PATTERNS=[
+  ['petting',/\b(?:strok(?:e|es|ed|ing)|pet(?:s|ted|ting)?)\b/i],
+  ['jumping_off',/\b(?:gets? off|jumps? off|leaves?)\b[^.]{0,48}\b(?:furniture|couch|sofa|bed|chair|surface)\b|\b(?:leaves?|gets? off|jumps? off) (?:the )?(?:furniture|couch|sofa|bed|chair|surface)\b/i],
+  ['jumping_on',/\b(?:gets?|climbs?|jumps?) (?:back )?on(?:to)? (?:the )?(?:furniture|couch|sofa|bed|chair|surface)\b/i],
+  ['approaching_person',/\b(?:approaches?|moves?|walks?|runs?) (?:closer |over )?(?:toward|towards|to) (?:the |a )?(?:person|human|man|woman)\b/i],
+  ['mouth_contact',/\b(?:mouth (?:touches?|contacts?)|bites? (?:onto|down on)|takes? [^.]{0,32} with (?:its|the) mouth)\b/i],
+  ['holding',/\b(?:holds?|keeps?) [^.]{0,36}\b(?:in|with) (?:its|the) mouth\b/i],
+  ['picking_up',/\b(?:picks? up|takes?) (?:the |an? )?(?:object|toy|item|ball|stick|rope)\b/i],
+  ['playing',/\b(?:plays? with|shakes?|interacts? playfully with) (?:the |an? )?(?:object|toy|item|ball|stick|rope|it)\b/i],
+  ['tugging',/\b(?:reciprocal(?:ly)? pull(?:ing|s)?|pulls? [^.]{0,36} against (?:the )?(?:person|human)|tugs? (?:with|against))\b/i],
+  ['dropping',/\b(?:releases?|lets? go of|falls? from (?:the dog'?s|its) mouth)\b/i],
+  ['rolling',/\brolls? (?:over |onto )?(?:its |the )?(?:side|back)\b/i],
+  ['tail_wagging',/\b(?:repeated|continuous|side[- ]to[- ]side)\b[^.]{0,32}\btail (?:motion|movement|wagging)\b|\btail moves? repeatedly side[- ]to[- ]side\b/i]
+]
+
+export function parseNaturalVisionObservations(raw){
+  const text=String(raw??'')
+  if(!text.trim()||/^\s*NONE[.!]?\s*$/i.test(text)||isVisionSchemaEcho(text))return []
+  return text.replace(/```[\s\S]*?```/g,'').split(/\r?\n|(?<=[.!?])\s+(?=[A-Z])/).map(line=>line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/,'').trim()).filter(line=>line&&line.length<=360&&!/^NONE[.!]?$/i.test(line)&&!isVisionSchemaEcho(line)).slice(0,3)
+}
+
+export function canonicalizeNaturalObservation(observation){
+  const text=cleanNaturalLanguageObservation(observation)
+  if(!text)return []
+  return [...new Set(NATURAL_ACTION_PATTERNS.filter(([,pattern])=>pattern.test(text)).map(([action])=>action))]
+}
+
+export function resolveNaturalObservationActor({candidateSubjects=[],evidence={}}={}){
+  const candidates=[...new Set(candidateSubjects.filter(value=>/^subject_\d+$/.test(String(value))))]
+  const strong=[...(evidence.hand_dog_subjects||[]),...(evidence.surface_subjects||[]),...(evidence.object_subjects||[]),...(evidence.deterministic_events||[]).map(event=>event?.actor)].filter(value=>/^subject_\d+$/.test(String(value)))
+  const implicated=[...new Set(strong)]
+  if(implicated.length===1)return {actor:implicated[0],ambiguous:false,basis:'deterministic_evidence'}
+  if(implicated.length>1)return {actor:null,ambiguous:true,basis:'conflicting_deterministic_evidence'}
+  if(candidates.length===1)return {actor:candidates[0],ambiguous:false,basis:'single_candidate_subject'}
+  return {actor:null,ambiguous:candidates.length>1,basis:candidates.length>1?'multiple_candidate_subjects':'no_actor_evidence'}
+}
+
+export function naturalObservationsToEvents(raw,{interval={start:0,end:0},candidateSubjects=[],evidence={}}={}){
+  const observations=parseNaturalVisionObservations(raw),actorResolution=resolveNaturalObservationActor({candidateSubjects,evidence}),canonicalized=[],events=[]
+  for(const observation of observations){const actions=canonicalizeNaturalObservation(observation);canonicalized.push({observation,actions});for(const action of actions)events.push(makeEvent({start:interval.start,end:interval.end,actor:actorResolution.actor,action,confidence:actorResolution.actor?.startsWith('subject_')?.8:.64,importance:.82,description:observation,source:'visionpsy-v3-natural',evidence:{natural_language:true,actor_basis:actorResolution.basis,actor_ambiguous:actorResolution.ambiguous}}))}
+  return {observations,canonicalized,events,actorResolution}
+}
+
 const PETTING_INTERRUPTERS=new Set(['jumping_off','jumping_on','playing','tugging','holding','carrying','picking_up','dropping','mouth_contact','running'])
 export function mergePettingEpisodes(events=[],gapSeconds=3.5){const ordered=events.map(event=>makeEvent(event)).sort((a,b)=>a.start-b.start),result=[],lastByActor=new Map();for(const event of ordered){if(event.action!=='petting'){result.push(event);if(PETTING_INTERRUPTERS.has(event.action))lastByActor.delete(event.actor);continue}const previous=lastByActor.get(event.actor);if(previous&&event.start-previous.end<=gapSeconds){previous.end=Math.max(previous.end,event.end);previous.start=Math.min(previous.start,event.start);previous.confidence=Math.max(previous.confidence,event.confidence);previous.importance=Math.max(previous.importance,event.importance);previous.rawIds=[...new Set([...(previous.rawIds||[]),event.id,...(event.rawIds||[])])];continue}result.push(event);lastByActor.set(event.actor,event)}return result.sort((a,b)=>a.start-b.start)}
 
@@ -264,7 +307,7 @@ export function evaluateRegressionV001(actualEvents=[],expected={},summaryEvents
 }
 
 export class DeepVideoDebugRecorder{
-  constructor({sessionId=`deep_${Date.now()}`,source=null}={}){this.session_id=sessionId;this.source=source;this.analysis_mode='recorded_deep_v3';this.version=DEEP_VIDEO_V3_VERSION;this.pass_a={frames_processed:0,effective_detector_fps:0,pose_frames:0};this.camera_motion_metrics={frames:0,confident_frames:0,mean_confidence:0};this.identity_metrics={persistent_subjects:0,matched:0,revived:0,new:0,uncertain:0};this.surface_entities=[];this.candidate_intervals=[];this.vision_windows=[];this.vision_metrics={vision_calls:0,useful_vision_responses:0,valid_structured_responses:0,valid_structured_with_events:0,valid_structured_empty:0,repaired_responses:0,fallback_parsed_responses:0,discarded_responses:0,structured_events_created:0,multi_image_attempts:0,multi_image_successes:0,multi_image_failures:0,contact_sheet_fallback_windows:0};this.semantic_events_before_reconciliation=[];this.identity_reconciliation=[];this.surface_reconciliation=[];this.semantic_events_final=[];this.summary_input=[];this.final_summary='';this.observations=[];this.dropped_events=[]}
+  constructor({sessionId=`deep_${Date.now()}`,source=null}={}){this.session_id=sessionId;this.source=source;this.analysis_mode='recorded_deep_v3';this.version=DEEP_VIDEO_V3_VERSION;this.pass_a={frames_processed:0,effective_detector_fps:0,pose_frames:0};this.camera_motion_metrics={frames:0,confident_frames:0,mean_confidence:0};this.identity_metrics={persistent_subjects:0,matched:0,revived:0,new:0,uncertain:0};this.surface_entities=[];this.candidate_intervals=[];this.vision_windows=[];this.vision_metrics={vision_windows_requested:0,vision_windows_completed:0,observations_returned:0,observations_canonicalized:0,observations_ambiguous:0,semantic_events_created:0};this.semantic_events_before_reconciliation=[];this.identity_reconciliation=[];this.surface_reconciliation=[];this.semantic_events_final=[];this.summary_input=[];this.final_summary='';this.observations=[];this.dropped_events=[]}
   recordObservation(value){this.observations.push(value);this.pass_a.frames_processed=this.observations.length}
   recordIdentity(decision){this.identity_reconciliation.push(decision);const key=decision.identity_decision;if(key in this.identity_metrics)this.identity_metrics[key]++}
   recordVision(result,candidate=null){for(const [key,value] of Object.entries(result.metrics||{}))this.vision_metrics[key]=(this.vision_metrics[key]||0)+Number(value||0);if(result.vision_window)this.vision_windows.push({...result.vision_window,id:result.vision_window.id||candidate?.id||null,reasons:result.vision_window.reasons||candidate?.reasons||[],subjects:result.vision_window.subjects||candidate?.subjects||[],salience:result.vision_window.salience??candidate?.salience??0});if(result.decisions)this.dropped_events.push(...result.decisions.filter(item=>item.status==='rejected'))}
