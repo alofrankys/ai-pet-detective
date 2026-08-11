@@ -16,6 +16,7 @@ import {
   appearanceDescriptor,
   orderedSemanticFrameTimestamps,
   fitAspectPreservingDimensions,
+  aspectPreservingContactSheetLayout,
   generateCandidateIntervals,
   reconcileV3Events
 } from './deep-video-v3.js'
@@ -969,9 +970,9 @@ async function deepPoseFor(box){
 
 function deepThumbnail(){const thumb=document.createElement('canvas');thumb.width=320;thumb.height=180;thumb.getContext('2d').drawImage(video,0,0,320,180);return thumb.toDataURL('image/jpeg',.58)}
 async function deepSemanticFrameSequence(interval){
-  const duration=Math.max(0,interval.end-interval.start),count=Math.max(6,Math.min(8,Math.ceil(Math.max(1,duration)*1.2))),timestamps=orderedSemanticFrameTimestamps(interval,count),dimensions=fitAspectPreservingDimensions(video.videoWidth,video.videoHeight,640),frameCanvas=document.createElement('canvas'),frameContext=frameCanvas.getContext('2d');frameCanvas.width=dimensions.width;frameCanvas.height=dimensions.height
-  const frames=[];for(const timestamp of timestamps){await seekDeepVideo(timestamp);frameContext.drawImage(video,0,0,dimensions.width,dimensions.height);frames.push({timestamp,image:frameCanvas.toDataURL('image/jpeg',.8),width:dimensions.width,height:dimensions.height})}
-  return {frames}
+  const duration=Math.max(0,interval.end-interval.start),count=Math.max(6,Math.min(8,Math.ceil(Math.max(1,duration)*1.2))),timestamps=orderedSemanticFrameTimestamps(interval,count),dimensions=fitAspectPreservingDimensions(video.videoWidth,video.videoHeight,640),layout=aspectPreservingContactSheetLayout(timestamps.map(timestamp=>({timestamp,...dimensions}))),frameCanvas=document.createElement('canvas'),frameContext=frameCanvas.getContext('2d'),sheetCanvas=document.createElement('canvas'),sheetContext=sheetCanvas.getContext('2d');frameCanvas.width=dimensions.width;frameCanvas.height=dimensions.height;sheetCanvas.width=layout.width;sheetCanvas.height=layout.height;sheetContext.fillStyle='#07100b';sheetContext.fillRect(0,0,layout.width,layout.height)
+  const frames=[];for(const [index,timestamp] of timestamps.entries()){await seekDeepVideo(timestamp);frameContext.drawImage(video,0,0,dimensions.width,dimensions.height);frames.push({timestamp,image:frameCanvas.toDataURL('image/jpeg',.8),width:dimensions.width,height:dimensions.height});const placement=layout.placements[index];sheetContext.drawImage(video,placement.x,placement.y,placement.width,placement.height);sheetContext.fillStyle='rgba(3,10,6,.78)';sheetContext.fillRect(placement.x+8,placement.y+8,112,24);sheetContext.fillStyle='#e4f5e9';sheetContext.font='600 12px sans-serif';sheetContext.fillText(`${index+1}/${timestamps.length} · ${timestamp.toFixed(1)}s`,placement.x+14,placement.y+24)}
+  return {frames,contact_sheet:{image:sheetCanvas.toDataURL('image/jpeg',.8),frame_count:frames.length,timestamps,frame_dimensions:frames.map(frame=>({width:frame.width,height:frame.height})),width:layout.width,height:layout.height}}
 }
 
 function deepBoxCenter(box){return {x:(box[0]+box[2])/2,y:(box[1]+box[3])/2}}
