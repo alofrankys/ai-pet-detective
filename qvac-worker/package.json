@@ -5,6 +5,8 @@
   "scripts": {
     "start": "node studio.mjs",
     "studio": "node studio.mjs",
+    "models:download": "node download-visionpsy-q4.mjs",
+    "models:verify": "node download-visionpsy-q4.mjs --verify-only",
     "test": "node --test tests/moment-lens.test.mjs",
     "test:moment": "node --test tests/moment-lens.test.mjs"
   }

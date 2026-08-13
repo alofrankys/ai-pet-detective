@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="studio-build" content="moment-lens-v1">
+  <meta name="studio-build" content="moment-lens-compare-q4">
   <title>VisionPsy Moment Lens</title>
   <link rel="stylesheet" href="./styles.css">
   <script>if(location.protocol==='file:')location.replace('http://127.0.0.1:8803/')</script>
@@ -12,12 +12,12 @@
   <main class="studio">
     <header class="topbar">
       <div class="studio-brand">
-        <span class="eyebrow">VISIONPSY · SINGLE IMAGE</span>
+        <span class="eyebrow">VISIONPSY · DUAL Q4</span>
         <h1>Moment Lens</h1>
       </div>
       <div class="top-actions">
-        <label class="compact-control"><span data-i18n="language">Language</span><select id="languageSelect"><option value="en">English</option><option value="it">Italiano</option></select></label>
-        <div class="status"><span id="statusDot" class="starting"></span><span id="statusText">VisionPsy starting…</span></div>
+        <label class="compact-control"><span data-i18n="language">UI language</span><select id="languageSelect"><option value="en">English</option><option value="it">Italiano</option></select></label>
+        <div class="status" role="status" aria-live="polite"><span id="statusDot" class="starting"></span><span id="statusText">VisionPsy starting…</span></div>
       </div>
     </header>
 
@@ -27,8 +27,8 @@
       <div id="sourceBadge" class="source-badge" hidden></div>
       <div id="emptyState" class="empty-state">
         <span class="lens-mark" aria-hidden="true"><i></i></span>
-        <strong data-i18n="heroTitle">One frame. One clear fact.</strong>
-        <span data-i18n="heroCopy">Use the camera or open a video, then choose the exact moment.</span>
+        <strong data-i18n="heroTitle">One frame. Two visual paths.</strong>
+        <span data-i18n="heroCopy">Choose one exact moment and compare both local VisionPsy models.</span>
         <div class="source-actions">
           <button id="startButton" data-i18n="startCamera">Start camera</button>
           <button id="fileButton" class="secondary" data-i18n="openVideo">Open video</button>
@@ -38,9 +38,9 @@
 
     <aside class="lens-panel">
       <div class="moment-intro">
-        <span class="eyebrow">ONE IMAGE · ONE REQUEST · LOCAL</span>
+        <span class="eyebrow">ONE IMAGE · TWO MODELS · LOCAL</span>
         <h2>Moment Lens</h2>
-        <p data-i18n="momentIntro">Choose a clear frame. VisionPsy will inspect this image only.</p>
+        <p data-i18n="momentIntro">Freeze one clear frame. Flash and Full inspect the exact same image with the exact same prompt.</p>
       </div>
       <div id="momentGuide" class="moment-guide" data-i18n="momentGuide">Aim the camera or pause your video on the moment you want to inspect.</div>
       <div class="moment-presets" role="group" aria-label="Moment Lens prompt">
@@ -48,22 +48,47 @@
         <button class="moment-preset" data-moment-preset="objects" aria-pressed="false" data-i18n="momentObjects">Objects</button>
         <button class="moment-preset" data-moment-preset="spatial" aria-pressed="false" data-i18n="momentSpatial">Spatial</button>
       </div>
-      <button id="momentAnalyseButton" class="moment-analyse" disabled data-i18n="momentAnalyse">Analyse this moment</button>
+      <button id="momentAnalyseButton" class="moment-analyse" disabled data-i18n="momentAnalyse">Compare this moment</button>
       <div id="momentAnalysing" class="moment-analysing" hidden role="status" aria-live="polite">
         <span class="moment-spinner" aria-hidden="true"></span>
-        <div><strong data-i18n="momentLooking">VisionPsy is looking…</strong><small data-i18n="momentOneFrame">One frozen frame · one local request</small></div>
+        <div><strong id="momentAnalysingTitle" data-i18n="momentLooking">Flash is looking…</strong><small data-i18n="momentOneFrame">Full follows on the same frozen frame</small></div>
       </div>
-      <article id="momentResult" class="moment-result" hidden aria-live="polite">
-        <span id="momentResultLabel" class="section-label" data-i18n="momentSees">VISIONPSY SEES</span>
-        <p id="momentAnswer"></p>
-        <div class="moment-meta">
-          <span id="momentModel">VisionPsy-Nano-460M-Flash</span>
-          <span id="momentLocalStatus" data-i18n="momentLocal">Local · offline</span>
-          <span id="momentInferenceTime">— ms</span>
+      <section id="comparisonResults" class="comparison-results" hidden aria-labelledby="comparisonTitle">
+        <div class="comparison-heading">
+          <span id="comparisonTitle" class="section-label" data-i18n="momentSees">VISIONPSY SEES</span>
+          <span class="comparison-quant">Q4_K_M · IMATRIX</span>
         </div>
-        <button id="momentTryAgainButton" class="moment-try-again" data-i18n="momentTryAgain">Try another moment</button>
-      </article>
-      <footer class="privacy-note"><span aria-hidden="true"></span><p data-i18n="privacyNote">Frame processed locally. No cloud upload.</p></footer>
+        <div class="model-results-grid">
+          <article id="flashCard" class="model-result-card waiting" data-state="waiting">
+            <header class="model-card-header">
+              <div><span class="model-route flash-route">FLASH</span><span class="model-role" data-i18n="speedPath">SPEED PATH</span></div>
+              <span id="flashState" class="model-state" data-i18n="modelWaiting">Waiting</span>
+            </header>
+            <h3>VisionPsy-Nano-460M-Flash</h3>
+            <p id="flashAnswer" class="model-answer" aria-live="polite"></p>
+            <div class="model-meta">
+              <span>Q4_K_M · imatrix</span>
+              <span data-i18n="momentLocal">Local · offline</span>
+              <span id="flashInferenceTime">— ms</span>
+            </div>
+          </article>
+          <article id="qualityCard" class="model-result-card waiting" data-state="waiting">
+            <header class="model-card-header">
+              <div><span class="model-route quality-route">FULL</span><span class="model-role" data-i18n="qualityPath">FULL VISUAL PATH</span></div>
+              <span id="qualityState" class="model-state" data-i18n="modelWaiting">Waiting</span>
+            </header>
+            <h3>VisionPsy-Nano-460M</h3>
+            <p id="qualityAnswer" class="model-answer" aria-live="polite"></p>
+            <div class="model-meta">
+              <span>Q4_K_M · imatrix</span>
+              <span data-i18n="momentLocal">Local · offline</span>
+              <span id="qualityInferenceTime">— ms</span>
+            </div>
+          </article>
+        </div>
+        <button id="momentTryAgainButton" class="moment-try-again" hidden data-i18n="momentTryAgain">Compare another moment</button>
+      </section>
+      <footer class="privacy-note"><span aria-hidden="true"></span><p data-i18n="privacyNote">Same frozen frame · Same prompt · Q4_K_M weights · 100% local.</p></footer>
     </aside>
   </main>
   <input id="videoFile" type="file" accept="video/*" hidden>
