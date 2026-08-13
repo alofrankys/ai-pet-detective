@@ -274,7 +274,84 @@ async function callVisionPsy(messages,max_tokens=220,requestContext={}){
   const response=await fetch(visionpsyEndpoint,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:'visionpsy',max_tokens,temperature:.05,top_p:.25,messages}),signal:AbortSignal.timeout(45_000)})
   const responseBody=await response.text();if(!response.ok)throw new VisionPsyHttpError({status:response.status,body:responseBody,visual_mode:visualMode,image_count:imageCount})
   const payload=JSON.parse(responseBody)
-  return String(payload?.choices?.[0]?.message?.content||'').replace(/\s+/g,' ').trim()
+  const content=String(payload?.choices?.[0]?.message?.content||'')
+  return requestContext.preserve_raw?content:content.replace(/\s+/g,' ').trim()
+}
+
+export const MOMENT_LENS_MODEL='VisionPsy-Nano-460M-Flash'
+export const MOMENT_LENS_PROMPTS=Object.freeze({
+  describe:`Describe the clearest visible fact involving the dog, a person, or an object in this image.
+
+Use one short factual sentence.
+Describe only what is directly visible.
+Do not infer emotion, intention, or what happened before or after.
+If the image is unclear, answer UNCLEAR.`,
+  objects:`Describe only the clearly visible relationship between the dog and an object in this image.
+
+Use one short factual sentence.
+Do not infer an action that requires multiple moments.
+If no clear dog-object relationship is visible, answer UNCLEAR.`,
+  spatial:`Describe where the dog is relative to the most relevant visible person, object, or furniture.
+
+Use one short factual sentence.
+If the spatial relationship is unclear, answer UNCLEAR.`
+})
+
+export function normalizeMomentLensPreset(value){
+  const preset=String(value||'').trim().toLowerCase()
+  return Object.hasOwn(MOMENT_LENS_PROMPTS,preset)?preset:null
+}
+
+export function buildMomentLensRequest({jpeg,preset='describe'}={}){
+  const normalizedPreset=normalizeMomentLensPreset(preset)
+  if(!normalizedPreset)throw new Error('Unknown Moment Lens preset')
+  const bytes=Buffer.isBuffer(jpeg)?jpeg:jpeg instanceof Uint8Array?Buffer.from(jpeg):null
+  if(!bytes?.length)throw new Error('Moment Lens requires one JPEG image')
+  const image=`data:image/jpeg;base64,${bytes.toString('base64')}`,prompt=MOMENT_LENS_PROMPTS[normalizedPreset]
+  return {
+    preset:normalizedPreset,
+    prompt,
+    messages:[{role:'user',content:[{type:'image_url',image_url:{url:image}},{type:'text',text:prompt}]}],
+    max_tokens:80,
+    request_context:{visual_mode:'single_image',image_count:1,preserve_raw:true}
+  }
+}
+
+const momentPromptEcho=/\b(?:describe the clearest visible fact involving|describe only the clearly visible relationship between|describe where the dog is relative|use one short factual sentence|describe only what is directly visible|do not infer emotion|do not infer an action that requires multiple moments|if the image is unclear|if no clear dog-object relationship is visible|if the spatial relationship is unclear|answer unclear)\b/i
+const momentUnsupportedInference=/\b(?:happy|happily|sad|angry|afraid|scared|excited|anxious|content|playful|curious|feels?|wants?|intends?|trying to|about to|enjoys?|because|previously|earlier|later|before|after|has just|had just|will|soon|seems?|appears to)\b/i
+
+export function sanitizeMomentLensAnswer(value,preset='describe'){
+  const raw_answer=String(value??'')
+  const normalizedPreset=normalizeMomentLensPreset(preset)
+  if(!normalizedPreset)return {status:'unclear',answer:null,raw_answer,reason:'unknown_preset'}
+  const compact=raw_answer.replace(/\s+/g,' ').trim()
+  if(/^UNCLEAR[.!]?$/i.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'model_unclear'}
+  const words=compact?compact.split(/\s+/).length:0
+  if(!compact)return {status:'unclear',answer:null,raw_answer,reason:'empty_response'}
+  if(compact.length>320||words>45)return {status:'unclear',answer:null,raw_answer,reason:'response_too_long'}
+  if(/\b(?:unclear|not clear|cannot determine|can't determine|unable to determine)\b/i.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'model_unclear'}
+  if(/\b(?:no (?:clearly )?(?:visible )?(?:dog|person|object|furniture)|(?:dog|person|object) (?:is|are) not visible|does not (?:show|contain) (?:a |any )?(?:dog|person|object))\b/i.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'no_relevant_visible_fact'}
+  if(isVisionSchemaEcho(compact)||hasNarrativeSchemaContamination(compact)||momentPromptEcho.test(compact)||/[<>]/.test(compact)||/^(?:[-*]\s+|(?:answer|response|description|output)\s*:)/i.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'echo_or_template'}
+  if(momentUnsupportedInference.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'unsupported_inference'}
+  const answer=cleanNaturalLanguageObservation(compact)
+  if(!answer||momentUnsupportedInference.test(answer))return {status:'unclear',answer:null,raw_answer,reason:'not_clean_natural_language'}
+  return {status:'clear',answer,raw_answer,reason:null}
+}
+
+export async function analyseMomentLens({jpeg,preset='describe'}={},visionCall=callVisionPsy,clock=()=>performance.now()){
+  const request=buildMomentLensRequest({jpeg,preset}),started=Number(clock())
+  const raw=await visionCall(request.messages,request.max_tokens,request.request_context)
+  const finished=Number(clock()),sanitized=sanitizeMomentLensAnswer(raw,request.preset)
+  return {
+    version:1,
+    mode:'moment_lens',
+    preset:request.preset,
+    model:MOMENT_LENS_MODEL,
+    execution:'local',
+    privacy:'offline',
+    inference_ms:Number(Math.max(0,finished-started).toFixed(1)),
+    ...sanitized
+  }
 }
 
 // This later declaration intentionally replaces the original single-caption
@@ -462,7 +539,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/status') {
       await Promise.all([detectorHealth(),visionpsyHealth()])
       return json(res, 200, {
-        studio: { build: 'agent/deep-video-v3', narrative: 'deep-recorded-v3', live: 'narrative-v2' },
+        studio: { build: 'agent/deep-video-v3', narrative: 'deep-recorded-v3', live: 'narrative-v2', momentLens: 'single-image-v1' },
         detector: { ready: detectorReady, engine: '@qvac/onnx · Core ML', reason: detectorReason },
         animalPose: { enabled: poseReady, engine: poseReady?'@qvac/onnx · RTMPose AP-10K':'not connected', provider: poseReady?'QVAC auto_gpu (Core ML requested)':null },
         visionpsy: { enabled: visionpsyReady, engine: visionpsyReady ? 'VisionPsy local' : 'starting or not connected' },
@@ -498,6 +575,16 @@ const server = http.createServer(async (req, res) => {
       const frameCount = Math.max(1,Math.min(3,Number(req.headers['x-frame-count'])||1))
       const observation = await interpretFrame(jpeg, Array.isArray(facts) ? facts : [], language, frameCount, trigger)
       return json(res, observation ? 200 : 422, observation || { error: 'No structured observation' })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/moment-lens') {
+      const contentType=String(req.headers['content-type']||'').split(';')[0].trim().toLowerCase()
+      if(contentType!=='image/jpeg')return json(res,415,{error:'Moment Lens accepts one JPEG image'})
+      const preset=normalizeMomentLensPreset(req.headers['x-moment-preset'])
+      if(!preset)return json(res,400,{error:'Unknown Moment Lens preset'})
+      if(!visionpsyReady&&!(await ensureVisionPsy()))return json(res,503,{error:'VisionPsy local endpoint not ready'})
+      const jpeg=await readBody(req,5_000_000)
+      if(jpeg.length<4||jpeg[0]!==0xff||jpeg[1]!==0xd8||jpeg.at(-2)!==0xff||jpeg.at(-1)!==0xd9)return json(res,415,{error:'Invalid JPEG image'})
+      return json(res,200,await analyseMomentLens({jpeg,preset}))
     }
     if (req.method === 'POST' && url.pathname === '/api/session-summary') {
       const body=await readBody(req,600_000)

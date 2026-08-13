@@ -58,8 +58,25 @@ const deepProgressBar = document.getElementById('deepProgressBar')
 const deepDetail = document.getElementById('deepDetail')
 const narrativeVersion = document.getElementById('narrativeVersion')
 const deepStepElements = [...document.querySelectorAll('[data-deep-step]')]
+const studioPanel = document.getElementById('studioPanel')
+const momentPanel = document.getElementById('momentPanel')
+const modeButtons = [...document.querySelectorAll('[data-studio-mode]')]
+const heroTitle = document.getElementById('heroTitle')
+const heroCopy = document.getElementById('heroCopy')
+const momentFreeze = document.getElementById('momentFreeze')
+const momentGuide = document.getElementById('momentGuide')
+const momentAnalyseButton = document.getElementById('momentAnalyseButton')
+const momentAnalysing = document.getElementById('momentAnalysing')
+const momentResult = document.getElementById('momentResult')
+const momentAnswer = document.getElementById('momentAnswer')
+const momentModel = document.getElementById('momentModel')
+const momentLocalStatus = document.getElementById('momentLocalStatus')
+const momentInferenceTime = document.getElementById('momentInferenceTime')
+const momentTryAgainButton = document.getElementById('momentTryAgainButton')
+const momentPresetButtons = [...document.querySelectorAll('[data-moment-preset]')]
 const captureCtx = capture.getContext('2d', { willReadFrequently:true })
 const overlayCtx = overlay.getContext('2d')
+const momentFreezeCtx = momentFreeze.getContext('2d')
 const poseCrop = document.createElement('canvas')
 poseCrop.width=256;poseCrop.height=256
 const poseCropCtx = poseCrop.getContext('2d',{willReadFrequently:true})
@@ -90,9 +107,17 @@ Object.assign(copy.en,{rawObservations:'raw observations',behaviourEvents:'behav
 Object.assign(copy.it,{rawObservations:'osservazioni grezze',behaviourEvents:'eventi comportamentali',exportDebug:'Esporta debug JSON',finalising:'Revisione dell’intero video…',crouching:'Accovacciato',sitting_down:'Si siede',standing_up:'Si alza',lying_down:'Si sdraia',rolling:'Si rotola',rubbing:'Si strofina',shaking:'Si scuote',stretching:'Si allunga',scratching:'Si gratta',mouth_open:'Bocca aperta',tongue_visible:'Lingua visibile',head_tilt:'Testa inclinata',jumping_on:'Sale con un salto',jumping_off:'Scende con un salto',entering:'Entra',crossing:'Attraversa',dropping:'Lascia cadere',tugging:'Gioco di trazione',fetching:'Riporto',mouth_contact:'Contatto con la bocca',dog_dog_interaction:'Interazione tra cani',person_dog_interaction:'Interazione persona–cane',scene_change:'Cambio scena'})
 Object.assign(copy.en,{sessionStory:'Session Story',deepPassA:'Perception',deepPassB:'Event detection',deepPassC:'Semantic review',deepPassD:'Final story',deepPreparing:'Preparing the recorded video…',deepScanning:'Scanning the complete recording locally.',deepFinding:'Finding meaningful changes and interactions.',deepReviewing:'Reviewing the most relevant moments in order.',deepWriting:'Building a clear story from confirmed events.',deepComplete:'Deep recorded analysis complete',deepFailed:'Deep analysis failed',fullVideoAnalysed:'Full video analysed',dogsFollowed:'dogs followed',keyMoments:'key moments'})
 Object.assign(copy.it,{sessionStory:'Storia della sessione',deepPassA:'Percezione',deepPassB:'Rilevamento eventi',deepPassC:'Revisione semantica',deepPassD:'Storia finale',deepPreparing:'Preparazione del video registrato…',deepScanning:'Analisi locale dell’intera registrazione.',deepFinding:'Ricerca dei cambiamenti e delle interazioni significative.',deepReviewing:'Revisione in ordine dei momenti più rilevanti.',deepWriting:'Creazione della storia dagli eventi confermati.',deepComplete:'Analisi profonda del video completata',deepFailed:'Analisi profonda non riuscita',fullVideoAnalysed:'Video completo analizzato',dogsFollowed:'cani seguiti',keyMoments:'momenti chiave'})
+Object.assign(copy.en,{liveMode:'Live',deepMode:'Deep Analysis',momentIntro:'Choose a clear frame. VisionPsy will inspect this image only.',momentGuide:'Aim the camera or pause your video on the moment you want to inspect.',momentGuideReady:'Choose the clearest moment, then freeze exactly this frame.',momentDescribe:'Describe',momentObjects:'Objects',momentSpatial:'Spatial',momentAnalyse:'Analyse this moment',momentLooking:'VisionPsy is looking…',momentOneFrame:'One frozen frame · one local request',momentSees:'VISIONPSY SEES',momentLocal:'Local · offline',momentTryAgain:'Try another moment',momentUnclear:'Unclear frame — try another moment',momentSourceRequired:'Open a camera or video first.',momentHeroTitle:'One frame. One clear fact.',momentHeroCopy:'Use the camera or open a video, then choose the exact moment.',deepHeroTitle:'Read the full recording.',deepHeroCopy:'Open a video file or YouTube URL for Deep Analysis.'})
+Object.assign(copy.it,{liveMode:'Live',deepMode:'Analisi profonda',momentIntro:'Scegli un fotogramma chiaro. VisionPsy analizzerà soltanto questa immagine.',momentGuide:'Inquadra con la fotocamera o metti in pausa il video nel momento da osservare.',momentGuideReady:'Scegli il momento più chiaro, poi congela esattamente questo fotogramma.',momentDescribe:'Descrivi',momentObjects:'Oggetti',momentSpatial:'Spaziale',momentAnalyse:'Analizza questo momento',momentLooking:'VisionPsy sta osservando…',momentOneFrame:'Un fotogramma congelato · una richiesta locale',momentSees:'VISIONPSY VEDE',momentLocal:'Locale · offline',momentTryAgain:'Prova un altro momento',momentUnclear:'Fotogramma poco chiaro — prova un altro momento',momentSourceRequired:'Apri prima una fotocamera o un video.',momentHeroTitle:'Un fotogramma. Un fatto chiaro.',momentHeroCopy:'Usa la fotocamera o apri un video, poi scegli il momento esatto.',deepHeroTitle:'Leggi l’intera registrazione.',deepHeroCopy:'Apri un file video o un URL YouTube per l’analisi profonda.'})
 
 let language = 'en'
 let activeFilter = 'all'
+let activeStudioMode = 'live'
+let momentPreset = 'describe'
+let momentRequestToken = 0
+let momentBusy = false
+let momentSourceReady = false
+let momentResumeAfterTry = false
 let running = false
 let busy = false
 let timer = null
@@ -820,8 +845,113 @@ function semanticActionTitle(action){
   return t(action)||t('visualDetail')
 }
 
+function renderStudioMode(){
+  document.body.dataset.studioMode=activeStudioMode
+  modeButtons.forEach(button=>{const active=button.dataset.studioMode===activeStudioMode;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active))})
+  studioPanel.hidden=activeStudioMode==='moment'
+  momentPanel.hidden=activeStudioMode!=='moment'
+  const sourceReady=Boolean(currentSource)
+  if(activeStudioMode==='moment'){
+    heroTitle.textContent=t('momentHeroTitle');heroCopy.textContent=t('momentHeroCopy')
+    momentGuide.textContent=momentSourceReady?t('momentGuideReady'):t('momentGuide');momentGuide.classList.toggle('ready',momentSourceReady)
+  }else if(activeStudioMode==='deep'){
+    heroTitle.textContent=t('deepHeroTitle');heroCopy.textContent=t('deepHeroCopy')
+  }else{
+    heroTitle.textContent=t('heroTitle');heroCopy.textContent=t('heroCopy')
+  }
+  momentAnalyseButton.disabled=!momentSourceReady||momentBusy
+  if(!sourceReady)emptyState.style.display=''
+}
+
+function resetMomentLensView({hideFreeze=true}={}){
+  momentBusy=false;momentResumeAfterTry=false
+  momentAnalysing.hidden=true;momentResult.hidden=true;momentResult.classList.remove('unclear');momentAnalyseButton.hidden=false
+  momentAnswer.textContent='';momentInferenceTime.textContent='— ms';momentModel.textContent='VisionPsy-Nano-460M-Flash';momentLocalStatus.textContent=t('momentLocal')
+  momentPresetButtons.forEach(button=>button.disabled=false)
+  if(hideFreeze)momentFreeze.classList.remove('visible')
+}
+
+function setStudioMode(mode){
+  if(!['live','moment','deep'].includes(mode)||mode===activeStudioMode){renderStudioMode();return}
+  momentRequestToken++
+  stopCurrentSource();currentSource=null;sourceBadge.hidden=true;youtubeModal.hidden=true;activeStudioMode=mode;momentSourceReady=false
+  resetSession();resetMomentLensView();emptyState.style.display='';renderStudioMode()
+}
+
+function markMomentSourceReady(kind,title=''){
+  resetSession();showSource(kind,title);currentSource.analysisMode='moment_lens';running=false;momentSourceReady=true
+  emptyState.style.display='none';resetMomentLensView();renderStudioMode()
+}
+
+async function startMomentCamera(){
+  try{
+    stopCurrentSource()
+    const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},facingMode:{ideal:'environment'}},audio:false})
+    video.srcObject=stream;video.controls=false;await video.play();markMomentSourceReady('camera')
+  }catch(error){statusDot.className='error';statusText.textContent=t('cameraError');momentSourceReady=false;renderStudioMode()}
+}
+
+async function openMomentVideo(file){
+  if(!file)return
+  stopCurrentSource();objectUrl=URL.createObjectURL(file);video.src=objectUrl;video.loop=false;video.muted=true;video.controls=true;video.load()
+  if(video.readyState<1)await waitForVideoEvent('loadedmetadata')
+  if(video.readyState<2)await waitForVideoEvent('loadeddata')
+  markMomentSourceReady('file',file.name);video.play().catch(()=>{})
+}
+
+function momentCanvasBlob(){
+  const dimensions=fitAspectPreservingDimensions(video.videoWidth,video.videoHeight,1280)
+  momentFreeze.width=dimensions.width;momentFreeze.height=dimensions.height
+  momentFreezeCtx.drawImage(video,0,0,dimensions.width,dimensions.height)
+  return new Promise(resolve=>momentFreeze.toBlob(resolve,'image/jpeg',.9))
+}
+
+function formatInferenceTime(value){
+  const milliseconds=Number(value)
+  if(!Number.isFinite(milliseconds))return '— ms'
+  return milliseconds<1000?`${Math.round(milliseconds)} ms`:`${(milliseconds/1000).toFixed(2)} s`
+}
+
+function showMomentResult(result={}){
+  const clear=result.status==='clear'&&typeof result.answer==='string'&&result.answer.trim()
+  momentAnswer.textContent=clear?result.answer:t('momentUnclear')
+  momentResult.classList.toggle('unclear',!clear);momentResult.hidden=false
+  momentModel.textContent=String(result.model||'VisionPsy-Nano-460M-Flash')
+  momentLocalStatus.textContent=t('momentLocal');momentInferenceTime.textContent=formatInferenceTime(result.inference_ms)
+}
+
+async function analyseCurrentMoment(){
+  if(activeStudioMode!=='moment'||momentBusy)return
+  if(!momentSourceReady||video.readyState<2||!video.videoWidth||!video.videoHeight){momentGuide.textContent=t('momentSourceRequired');return}
+  const token=++momentRequestToken
+  momentBusy=true;momentResumeAfterTry=currentSource?.kind==='file'&&!video.paused
+  if(currentSource?.kind==='file')video.pause()
+  momentAnalyseButton.disabled=true;momentAnalyseButton.hidden=true;momentAnalysing.hidden=false;momentResult.hidden=true
+  momentPresetButtons.forEach(button=>button.disabled=true)
+  try{
+    const jpeg=await momentCanvasBlob()
+    if(!jpeg)throw new Error('Could not freeze this frame')
+    momentFreeze.classList.add('visible')
+    const response=await fetch('/api/moment-lens',{method:'POST',headers:{'content-type':'image/jpeg','x-moment-preset':momentPreset},body:jpeg})
+    const result=await response.json()
+    if(!response.ok)throw new Error(result.error||`Moment Lens ${response.status}`)
+    if(token!==momentRequestToken)return
+    showMomentResult(result)
+  }catch(error){if(token===momentRequestToken)showMomentResult({status:'unclear',model:'VisionPsy-Nano-460M-Flash'})}
+  finally{
+    if(token===momentRequestToken){momentBusy=false;momentAnalysing.hidden=true;momentPresetButtons.forEach(button=>button.disabled=false)}
+  }
+}
+
+function tryAnotherMoment(){
+  if(activeStudioMode!=='moment')return
+  momentRequestToken++;const resume=momentResumeAfterTry
+  resetMomentLensView();momentAnalyseButton.disabled=!momentSourceReady;momentGuide.textContent=momentSourceReady?t('momentGuideReady'):t('momentGuide')
+  if(resume&&currentSource?.kind==='file')video.play().catch(()=>{})
+}
+
 function showSource(kind,title=''){
-  currentSource={kind,title:String(title||'').trim()}
+  currentSource={...(currentSource||{}),kind,title:String(title||'').trim()}
   debugRecorder.source=currentSource
   const prefix=kind==='camera'?t('cameraSource'):kind==='youtube'?t('youtubeSource'):t('fileSource')
   sourceBadge.textContent=currentSource.title?`${prefix} · ${currentSource.title}`:prefix
@@ -829,12 +959,12 @@ function showSource(kind,title=''){
 }
 
 function stopCurrentSource(){
-  deepAnalysisToken++;deepProgress.hidden=true
+  deepAnalysisToken++;momentRequestToken++;deepProgress.hidden=true;momentSourceReady=false;resetMomentLensView()
   running=false
   if(timer){clearInterval(timer);timer=null}
   if(video.srcObject){video.srcObject.getTracks().forEach(track=>track.stop());video.srcObject=null}
   if(objectUrl){URL.revokeObjectURL(objectUrl);objectUrl=null}
-  video.pause();video.controls=false;video.removeAttribute('src');video.load()
+  video.pause();video.controls=false;video.removeAttribute('src');video.load();currentSource=null;sourceBadge.hidden=true
 }
 
 function fuseLatestMotion(item){
@@ -1032,7 +1162,8 @@ async function startDeepRecordedSource(kind,title=''){
 function resetSession(){tracks=[];retiredTracks=[];nextTrackId=1;subjectCounters.clear();categoryColorCounters.clear();events.length=0;sessionEvents.length=0;sessionContext.clear();sessionMaxVisible.clear();sessionSummaryButton.hidden=true;eventLastSeen.clear();timeline.replaceChildren();lastInterpretationAt=0;semanticFrames.splice(0);lastSemanticSampleAt=0;faceCues=[];handCues=[];handDogContact.clear();nextFaceCueAt=0;nextHandCueAt=0;nextAnimalPoseAt=0;lastFinalResult=null;deepAnalysisComplete=false;deepFinalResult=null;deepDebugRecorder=null;narrativeVersion.textContent='VISIONPSY · NARRATIVE V2';resetNarrativeV2();clearSceneHistory();sceneText.textContent='—'}
 async function startLoop(){running=true;emptyState.style.display='none';if(!timer)timer=setInterval(analyse,260)}
 async function startCamera(){
-  try{stopCurrentSource();const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false});video.srcObject=stream;await video.play();resetSession();showSource('camera');startLoop()}
+  if(activeStudioMode==='moment')return startMomentCamera()
+  try{stopCurrentSource();const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false});video.srcObject=stream;await video.play();resetSession();showSource('camera');currentSource.analysisMode='live_narrative_v2';startLoop()}
   catch(error){statusDot.className='error';statusText.textContent=t('cameraError');setScene(String(error.message||error),[],{reset:true,immediate:true})}
 }
 async function openVideo(file){
@@ -1057,21 +1188,26 @@ function applyLanguage(){
   if(currentSource)showSource(currentSource.kind,currentSource.title)
   if(!running){setScene(t('waiting'),[],{reset:true,immediate:true});detectedList.replaceChildren(Object.assign(document.createElement('span'),{textContent:'—'}))}
   else summarize(tracks.filter(track=>track.missed===0))
-  renderEvents();refreshStatus()
+  renderEvents();renderStudioMode();refreshStatus()
 }
 async function refreshStatus(){
   try{const status=await fetch('/api/status').then(response=>response.json());visionpsyEnabled=status.visionpsy.enabled;animalPoseEnabled=Boolean(status.animalPose?.enabled);if(status.detector.ready){statusDot.className='ready';statusText.textContent=visionpsyEnabled?t('qvacPsy'):t('qvacVision')}else{statusDot.className='error';statusText.textContent=status.detector.reason||'Detector unavailable'}}catch{statusDot.className='error';statusText.textContent='Engine unavailable'}
 }
 
 document.querySelectorAll('.filter').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('.filter').forEach(item=>item.classList.toggle('active',item===button));activeFilter=button.dataset.filter}))
+modeButtons.forEach(button=>button.addEventListener('click',()=>setStudioMode(button.dataset.studioMode)))
+momentPresetButtons.forEach(button=>button.addEventListener('click',()=>{if(momentBusy)return;momentPreset=button.dataset.momentPreset;momentPresetButtons.forEach(item=>{const active=item===button;item.classList.toggle('active',active);item.setAttribute('aria-pressed',String(active))})}))
 startButton.addEventListener('click',startCamera)
-fileButton.addEventListener('click',()=>videoFile.click())
-videoFile.addEventListener('change',()=>openVideo(videoFile.files[0]))
-youtubeButton.addEventListener('click',()=>{youtubeError.hidden=true;youtubeModal.hidden=false;requestAnimationFrame(()=>youtubeInput.focus())})
+fileButton.addEventListener('click',()=>{videoFile.value='';videoFile.click()})
+videoFile.addEventListener('change',()=>{const file=videoFile.files[0];if(!file)return;if(activeStudioMode==='moment')openMomentVideo(file);else{if(activeStudioMode!=='deep')setStudioMode('deep');openVideo(file)}})
+youtubeButton.addEventListener('click',()=>{if(activeStudioMode!=='deep')setStudioMode('deep');youtubeError.hidden=true;youtubeModal.hidden=false;requestAnimationFrame(()=>youtubeInput.focus())})
 youtubeForm.addEventListener('submit',event=>{event.preventDefault();openYoutube(youtubeInput.value.trim())})
 closeYoutubeModal.addEventListener('click',()=>youtubeModal.hidden=true)
 youtubeModal.addEventListener('click',event=>{if(event.target===youtubeModal)youtubeModal.hidden=true})
-video.addEventListener('ended',()=>{running=false;if(timer){clearInterval(timer);timer=null}if(deepAnalysisComplete&&deepFinalResult){sessionSummaryText.textContent=deepFinalResult.summary||fallbackV2Narrative(deepFinalResult.events||[]);renderDeepSessionFacts(deepFinalResult.events||[]);sessionModal.hidden=false}else showSessionSummary({finalPass:true})})
+video.addEventListener('ended',()=>{running=false;if(timer){clearInterval(timer);timer=null}if(activeStudioMode==='moment')return;if(deepAnalysisComplete&&deepFinalResult){sessionSummaryText.textContent=deepFinalResult.summary||fallbackV2Narrative(deepFinalResult.events||[]);renderDeepSessionFacts(deepFinalResult.events||[]);sessionModal.hidden=false}else showSessionSummary({finalPass:true})})
+video.addEventListener('play',()=>{if(activeStudioMode==='moment'&&!momentBusy&&momentFreeze.classList.contains('visible'))tryAnotherMoment()})
+momentAnalyseButton.addEventListener('click',analyseCurrentMoment)
+momentTryAgainButton.addEventListener('click',tryAnotherMoment)
 sessionSummaryButton.addEventListener('click',()=>{if(deepAnalysisComplete&&deepFinalResult){sessionSummaryText.textContent=deepFinalResult.summary||fallbackV2Narrative(deepFinalResult.events||[]);renderDeepSessionFacts(deepFinalResult.events||[]);sessionModal.hidden=false}else showSessionSummary({finalPass:false})})
 exportDebugButton.addEventListener('click',()=>deepDebugRecorder&&currentSource?.analysisMode==='recorded_deep_v3'?deepDebugRecorder.download():debugRecorder.download())
 closeSessionModal.addEventListener('click',()=>sessionModal.hidden=true)
@@ -1079,4 +1215,4 @@ sessionModal.addEventListener('click',event=>{if(event.target===sessionModal)ses
 languageSelect.addEventListener('change',applyLanguage)
 overlayToggle.addEventListener('change',()=>draw(tracks.filter(track=>track.missed===0)))
 window.addEventListener('resize',()=>draw(tracks.filter(track=>track.missed===0)))
-applyLanguage();refreshStatus();initFaceCues();initHandCues()
+renderStudioMode();applyLanguage();refreshStatus();initFaceCues();initHandCues()

@@ -4,7 +4,14 @@
 <body>
   <main class="studio">
     <header class="topbar">
-      <div><span class="eyebrow">VISIONPSY</span><h1>Live Studio</h1></div>
+      <div class="studio-brand">
+        <span class="eyebrow">VISIONPSY</span><h1>Live Studio</h1>
+        <nav class="mode-switch" aria-label="Studio mode">
+          <button class="mode-button active" data-studio-mode="live" aria-pressed="true" data-i18n="liveMode">Live</button>
+          <button class="mode-button moment-mode-button" data-studio-mode="moment" aria-pressed="false">Moment Lens</button>
+          <button class="mode-button" data-studio-mode="deep" aria-pressed="false" data-i18n="deepMode">Deep Analysis</button>
+        </nav>
+      </div>
       <div class="top-actions">
         <label class="compact-control"><span data-i18n="language">Language</span><select id="languageSelect"><option value="en">English</option><option value="it">Italiano</option></select></label>
         <label class="compact-control toggle"><input id="overlayToggle" type="checkbox" checked><span data-i18n="labels">Labels</span></label>
@@ -14,6 +21,7 @@
     <section class="stage">
       <video id="camera" autoplay playsinline muted></video>
       <canvas id="overlay"></canvas>
+      <canvas id="momentFreeze" aria-hidden="true"></canvas>
       <div id="sourceBadge" class="source-badge" hidden></div>
       <div id="deepProgress" class="deep-progress" hidden role="status" aria-live="polite">
         <div class="deep-progress-head"><span class="deep-progress-kicker">DEEP ANALYSIS</span><strong id="deepPercent">0%</strong></div>
@@ -22,17 +30,36 @@
         <progress id="deepProgressBar" max="100" value="0"></progress>
         <div class="deep-steps" aria-hidden="true"><span data-deep-step="0">Perception</span><span data-deep-step="1">Event detection</span><span data-deep-step="2">Semantic review</span><span data-deep-step="3">Final story</span></div>
       </div>
-      <div id="emptyState" class="empty-state"><strong data-i18n="heroTitle">Make the scene readable.</strong><span data-i18n="heroCopy">Use the camera, a file or a YouTube URL.</span><div class="source-actions"><button id="startButton" data-i18n="startCamera">Start camera</button><button id="fileButton" class="secondary" data-i18n="openVideo">Open video</button><button id="youtubeButton" class="secondary youtube-source" data-i18n="youtubeUrl">YouTube URL</button></div></div>
+      <div id="emptyState" class="empty-state"><strong id="heroTitle" data-i18n="heroTitle">Make the scene readable.</strong><span id="heroCopy" data-i18n="heroCopy">Use the camera, a file or a YouTube URL.</span><div class="source-actions"><button id="startButton" class="camera-source" data-i18n="startCamera">Start camera</button><button id="fileButton" class="secondary file-source" data-i18n="openVideo">Open video</button><button id="youtubeButton" class="secondary youtube-source" data-i18n="youtubeUrl">YouTube URL</button></div></div>
     </section>
     <section class="lower">
-      <div class="filter-row" aria-label="Visible subjects">
-        <button class="filter active" data-filter="all" data-i18n="all">All</button><button class="filter" data-filter="person" data-i18n="people">People</button><button class="filter" data-filter="animal" data-i18n="animals">Animals</button><button class="filter" data-filter="object" data-i18n="objects">Objects</button>
+      <div id="studioPanel">
+        <div class="filter-row" aria-label="Visible subjects">
+          <button class="filter active" data-filter="all" data-i18n="all">All</button><button class="filter" data-filter="person" data-i18n="people">People</button><button class="filter" data-filter="animal" data-i18n="animals">Animals</button><button class="filter" data-filter="object" data-i18n="objects">Objects</button>
+        </div>
+        <div class="scene-line"><span class="section-label" data-i18n="scene">SCENE</span><strong id="sceneText">Waiting for a source</strong><span id="sceneConfidence"></span></div>
+        <div class="detected-line"><span class="section-label" data-i18n="detected">DETECTED</span><div id="detectedList" class="detected-list"><span>—</span></div></div>
+        <div class="timeline-head"><span class="section-label" data-i18n="recentEvents">RECENT EVENTS</span><span id="fps">—</span></div>
+        <div id="timeline" class="timeline" aria-live="polite"></div>
+        <button id="sessionSummaryButton" class="summary-button" data-i18n="sessionStory" hidden>Session Story</button>
       </div>
-      <div class="scene-line"><span class="section-label" data-i18n="scene">SCENE</span><strong id="sceneText">Waiting for a source</strong><span id="sceneConfidence"></span></div>
-      <div class="detected-line"><span class="section-label" data-i18n="detected">DETECTED</span><div id="detectedList" class="detected-list"><span>—</span></div></div>
-      <div class="timeline-head"><span class="section-label" data-i18n="recentEvents">RECENT EVENTS</span><span id="fps">—</span></div>
-      <div id="timeline" class="timeline" aria-live="polite"></div>
-      <button id="sessionSummaryButton" class="summary-button" data-i18n="sessionStory" hidden>Session Story</button>
+      <div id="momentPanel" class="moment-panel" hidden>
+        <div class="moment-intro"><span class="eyebrow">SINGLE IMAGE · LOCAL</span><h2>Moment Lens</h2><p data-i18n="momentIntro">Choose a clear frame. VisionPsy will inspect this image only.</p></div>
+        <div class="moment-guide" id="momentGuide" data-i18n="momentGuide">Aim the camera or pause your video on the moment you want to inspect.</div>
+        <div class="moment-presets" role="group" aria-label="Moment Lens prompt">
+          <button class="moment-preset active" data-moment-preset="describe" aria-pressed="true" data-i18n="momentDescribe">Describe</button>
+          <button class="moment-preset" data-moment-preset="objects" aria-pressed="false" data-i18n="momentObjects">Objects</button>
+          <button class="moment-preset" data-moment-preset="spatial" aria-pressed="false" data-i18n="momentSpatial">Spatial</button>
+        </div>
+        <button id="momentAnalyseButton" class="moment-analyse" disabled data-i18n="momentAnalyse">Analyse this moment</button>
+        <div id="momentAnalysing" class="moment-analysing" hidden role="status" aria-live="polite"><span class="moment-spinner" aria-hidden="true"></span><div><strong data-i18n="momentLooking">VisionPsy is looking…</strong><small data-i18n="momentOneFrame">One frozen frame · one local request</small></div></div>
+        <article id="momentResult" class="moment-result" hidden aria-live="polite">
+          <span class="section-label" data-i18n="momentSees">VISIONPSY SEES</span>
+          <p id="momentAnswer"></p>
+          <div class="moment-meta"><span id="momentModel">VisionPsy-Nano-460M-Flash</span><span id="momentLocalStatus" data-i18n="momentLocal">Local · offline</span><span id="momentInferenceTime">— ms</span></div>
+          <button id="momentTryAgainButton" class="moment-try-again" data-i18n="momentTryAgain">Try another moment</button>
+        </article>
+      </div>
     </section>
   </main>
   <canvas id="capture" width="640" height="640" hidden></canvas>
