@@ -58,23 +58,13 @@ export const MOMENT_LENS_MODELS=Object.freeze(VISIONPSY_MODELS.map(model=>Object
   model_file:model.modelFile,
   projector_file:model.projectorFile
 })))
-export const MOMENT_LENS_SAMPLING=Object.freeze({max_tokens:80,temperature:.05,top_p:.25})
+// Mirrors QVAC's reference decode: deterministic greedy generation with the
+// same 128-token maximum; a length stop is preserved and disclosed in the UI.
+export const MOMENT_LENS_SAMPLING=Object.freeze({max_tokens:128,temperature:0})
 export const MOMENT_LENS_PROMPTS=Object.freeze({
-  describe:`Describe the clearest visible fact involving the dog, a person, or an object in this image.
-
-Use one short factual sentence.
-Describe only what is directly visible.
-Do not infer emotion, intention, or what happened before or after.
-If the image is unclear, answer UNCLEAR.`,
-  objects:`Describe only the clearly visible relationship between the dog and an object in this image.
-
-Use one short factual sentence.
-Do not infer an action that requires multiple moments.
-If no clear dog-object relationship is visible, answer UNCLEAR.`,
-  spatial:`Describe where the dog is relative to the most relevant visible person, object, or furniture.
-
-Use one short factual sentence.
-If the spatial relationship is unclear, answer UNCLEAR.`
+  describe:`What is visible in this image? Give a detailed natural-language description of the main subject, setting, posture, visible objects, colors, contact, and spatial relationships, including only details that can be seen directly. If the image is too unclear to describe reliably, answer UNCLEAR.`,
+  objects:`What objects are visible in this image, and how do they relate to the main subject and to one another? Give a detailed natural-language description of their visible attributes, positions, and contact. Include only details that can be seen directly. If no reliable object relationship is visible, answer UNCLEAR.`,
+  spatial:`How are the visible people, animals, objects, furniture, and surroundings arranged in this image? Give a detailed natural-language description of relative positions, distance, overlap, and contact, including only details that can be seen directly. If the spatial arrangement is too unclear to describe reliably, answer UNCLEAR.`
 })
 
 // Preserved for integrations that use the original Moment Lens error type.
@@ -116,14 +106,13 @@ export function buildMomentLensRequest({jpeg,preset='describe'}={}){
 const pipeSeparatedTokens=/\b[a-z][a-z_]{2,}\s*\|\s*[a-z][a-z_]{2,}\b/i
 const structuredOutput=/```|[{}\[\]]|"?(?:events?|actor_ref|target_ref|action|confidence|evidence|context|model_?output)"?\s*[:=]|^\s*(?:json|schema|template|output)\s*(?::|=|-|—)/i
 const templateLanguage=/<[^>]+>|\b(?:schema|template|placeholder|example json|model output)\b/i
-const momentPromptEcho=/\b(?:describe the clearest visible fact involving|describe only the clearly visible relationship between|describe where the dog is relative|use one short factual sentence|describe only what is directly visible|do not infer emotion|do not infer an action that requires multiple moments|if the image is unclear|if no clear dog-object relationship is visible|if the spatial relationship is unclear|answer unclear)\b/i
-const momentUnsupportedInference=/\b(?:happy|happily|sad|angry|afraid|scared|excited|anxious|content|playful|curious|feels?|wants?|intends?|trying to|about to|enjoys?|because|previously|earlier|later|before|after|has just|had just|will|soon|seems?|appears to)\b/i
+const momentPromptEcho=/\b(?:what is visible in this image|give a detailed natural-language description of the main subject|what objects are visible in this image|how do they relate to the main subject and to one another|how are the visible people, animals, objects, furniture|including only details that can be seen directly|if no reliable object relationship is visible|if the spatial arrangement is too unclear|describe what is directly visible in this image|cover the main subject, setting, posture|use natural language and begin directly with the subject|describe the directly visible relationships between the main subject|describe the directly visible spatial arrangement|describe the clearest visible fact involving|describe only the clearly visible relationship between|describe where the dog is relative|use one short factual sentence|describe only what is directly visible|do not infer emotion|if the image is unclear|answer unclear)\b/i
 
-function cleanFactualSentence(value){
-  const compact=String(value||'').replace(/\s+/g,' ').trim()
-  if(compact.length<12||compact.length>320||structuredOutput.test(compact)||templateLanguage.test(compact)||pipeSeparatedTokens.test(compact))return null
-  const sentence=(compact.match(/^.{1,260}?(?:[.!?](?=\s|$)|$)/)?.[0]||'').trim()
-  return sentence.length>=12?sentence:null
+function cleanNaturalLanguageAnswer(value){
+  const answer=String(value||'').replace(/\r\n?/g,'\n').trim()
+  const compact=answer.replace(/\s+/g,' ').trim()
+  if(compact.length<3||structuredOutput.test(compact)||templateLanguage.test(compact)||pipeSeparatedTokens.test(compact))return null
+  return answer
 }
 
 export function sanitizeMomentLensAnswer(value,preset='describe'){
@@ -132,13 +121,9 @@ export function sanitizeMomentLensAnswer(value,preset='describe'){
   const compact=raw_answer.replace(/\s+/g,' ').trim()
   if(/^UNCLEAR[.!]?$/i.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'model_unclear'}
   if(!compact)return {status:'unclear',answer:null,raw_answer,reason:'empty_response'}
-  if(compact.length>320||compact.split(/\s+/).length>45)return {status:'unclear',answer:null,raw_answer,reason:'response_too_long'}
-  if(/\b(?:unclear|not clear|cannot determine|can't determine|unable to determine|cannot be described|can't be described|unable to describe|too blurry|image is blurry)\b/i.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'model_unclear'}
-  if(/\b(?:no (?:clearly )?(?:visible )?(?:dog|person|object|furniture)|(?:dog|person|object) (?:is|are) not visible|does not (?:show|contain) (?:a |any )?(?:dog|person|object))\b/i.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'no_relevant_visible_fact'}
   if(structuredOutput.test(compact)||templateLanguage.test(compact)||pipeSeparatedTokens.test(compact)||momentPromptEcho.test(compact)||/^(?:[-*]\s+|(?:answer|response|description)\s*:)/i.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'echo_or_template'}
-  if(momentUnsupportedInference.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'unsupported_inference'}
-  const answer=cleanFactualSentence(compact)
-  if(!answer||momentUnsupportedInference.test(answer))return {status:'unclear',answer:null,raw_answer,reason:'not_clean_natural_language'}
+  const answer=cleanNaturalLanguageAnswer(raw_answer)
+  if(!answer)return {status:'unclear',answer:null,raw_answer,reason:'not_clean_natural_language'}
   return {status:'clear',answer,raw_answer,reason:null}
 }
 
@@ -154,11 +139,19 @@ function modelMetadata(spec){
 }
 
 function normalizedCompletion(value){
-  return typeof value==='string'?{content:value,usage:null,timings:null}:{
+  return typeof value==='string'?{content:value,finish_reason:null,usage:null,timings:null}:{
     content:String(value?.content??''),
+    finish_reason:String(value?.finish_reason||'')||null,
     usage:value?.usage||null,
     timings:value?.timings||null
   }
+}
+
+function normalizedOutputTokens(usage,timings){
+  for(const value of [usage?.completion_tokens,timings?.predicted_n]){
+    if(typeof value==='number'&&Number.isSafeInteger(value)&&value>=0)return value
+  }
+  return null
 }
 
 async function runVariant(spec,request,modelCall,clock,{captureErrors=true}={}){
@@ -170,6 +163,8 @@ async function runVariant(spec,request,modelCall,clock,{captureErrors=true}={}){
       inference_ms:Number(Math.max(0,Number(clock())-started).toFixed(1)),
       usage:completion.usage,
       timings:completion.timings,
+      finish_reason:completion.finish_reason,
+      output_tokens:normalizedOutputTokens(completion.usage,completion.timings),
       ...sanitizeMomentLensAnswer(completion.content,request.preset)
     }
   }catch(error){
@@ -183,6 +178,8 @@ async function runVariant(spec,request,modelCall,clock,{captureErrors=true}={}){
       inference_ms:Number(Math.max(0,Number(clock())-started).toFixed(1)),
       usage:null,
       timings:null,
+      finish_reason:null,
+      output_tokens:null,
       error:String(error?.message||error).slice(0,500)
     }
   }
@@ -221,7 +218,7 @@ export async function analyseMomentLensPair(
 export async function analyseMomentLens({jpeg,preset='describe'}={},visionCall,clock=()=>performance.now()){
   const request=buildMomentLensRequest({jpeg,preset})
   const spec=VISIONPSY_MODELS[0]
-  const call=visionCall||((messages,maxTokens,context)=>runtimePool.completion(spec,{model:'visionpsy',messages,max_tokens:maxTokens,temperature:MOMENT_LENS_SAMPLING.temperature,top_p:MOMENT_LENS_SAMPLING.top_p},context))
+  const call=visionCall||((messages,maxTokens,context)=>runtimePool.completion(spec,{model:'visionpsy',messages,...MOMENT_LENS_SAMPLING,max_tokens:maxTokens},context))
   const result=await runVariant(spec,request,(body,context)=>call(body.messages,body.max_tokens,context),clock,{captureErrors:false})
   return {version:1,mode:'moment_lens',preset:request.preset,...result}
 }

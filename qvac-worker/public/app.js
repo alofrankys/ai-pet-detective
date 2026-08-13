@@ -42,13 +42,15 @@ const modelElements=Object.freeze({
     card:document.getElementById('flashCard'),
     state:document.getElementById('flashState'),
     answer:document.getElementById('flashAnswer'),
-    inference:document.getElementById('flashInferenceTime')
+    inference:document.getElementById('flashInferenceTime'),
+    outputTokens:document.getElementById('flashOutputTokens')
   },
   quality:{
     card:document.getElementById('qualityCard'),
     state:document.getElementById('qualityState'),
     answer:document.getElementById('qualityAnswer'),
-    inference:document.getElementById('qualityInferenceTime')
+    inference:document.getElementById('qualityInferenceTime'),
+    outputTokens:document.getElementById('qualityOutputTokens')
   }
 })
 
@@ -56,24 +58,24 @@ const copy={
   en:{
     language:'UI language',engineStarting:'Starting Q4 models',engineReady:'2 Q4 models · local',engineUnavailable:'VisionPsy models unavailable',
     heroTitle:'One image. Two visual paths.',heroCopy:'Use the camera, open a video, or choose one or more photos.',startCamera:'Start camera',openVideo:'Open video',openPhotos:'Open photos',
-    momentIntro:'Select one clear image. Flash and Full inspect the exact same JPEG with the exact same prompt.',momentGuide:'Aim the camera, pause a video, or select a photo to inspect.',momentGuideReady:'Choose the clearest image, then compare exactly this moment.',photoGuideReady:'Only this selected photo will be compared. Other photos stay local in the queue.',
+    momentIntro:'One image and one open prompt. Flash and Full answer in their own words with the same official-reference decode.',momentGuide:'Aim the camera, pause a video, or select a photo to inspect.',momentGuideReady:'Choose the clearest image, then compare exactly this moment.',photoGuideReady:'Only this selected photo will be compared. Other photos stay local in the queue.',
     momentDescribe:'Describe',momentObjects:'Objects',momentSpatial:'Spatial',momentAnalyse:'Compare this moment',momentLooking:'Flash is looking…',momentOneFrame:'Full follows on the same selected image',
     momentSees:'VISIONPSY SEES',momentLocal:'Local · offline',momentTryAgain:'Compare another moment',momentUnclear:'Unclear image — try another moment',momentError:'This model could not analyse the image.',
-    speedPath:'FLASH VISUAL PATH',qualityPath:'FULL VISUAL PATH',modelWaiting:'Waiting',modelQueued:'Queued',modelRunning:'Analysing',modelReady:'Ready',modelUnclear:'Unclear',modelError:'Unavailable',
+    speedPath:'FLASH VISUAL PATH',qualityPath:'FULL VISUAL PATH',modelWaiting:'Waiting',modelQueued:'Queued',modelRunning:'Analysing',modelReady:'Ready',modelLimited:'Max reached',modelUnclear:'Unclear',modelError:'Unavailable',outputTokens:'output tokens',
     flashLooking:'Flash is looking…',qualityLooking:'Full is looking…',cameraSource:'Camera',fileSource:'Uploaded video',photoSource:'Photo',cameraError:'Camera unavailable',videoError:'This video cannot be opened in the browser.',photoError:'These photos cannot be opened. Choose JPEG, PNG, or WebP files.',
     changeSource:'Change source',stageLabel:'Camera, video, or selected photo',selectedPhotos:'Selected photos',photoList:'Photos',momentPromptLabel:'Moment Lens prompt',cameraShort:'Camera',videoShort:'Video',photosShort:'Photos',previousPhoto:'Previous photo',nextPhoto:'Next photo',photoLabel:'Photo',
-    privacyNote:'Same selected image · Same prompt · Q4_K_M weights · 100% local.'
+    privacyNote:'Same selected image · Same prompt · Greedy · 128 max output tokens · Q4_K_M · 100% local.'
   },
   it:{
     language:'Lingua UI',engineStarting:'Avvio modelli Q4',engineReady:'2 modelli Q4 · locali',engineUnavailable:'Modelli VisionPsy non disponibili',
     heroTitle:'Un’immagine. Due percorsi visivi.',heroCopy:'Usa la fotocamera, apri un video oppure scegli una o più foto.',startCamera:'Avvia fotocamera',openVideo:'Apri video',openPhotos:'Apri foto',
-    momentIntro:'Seleziona un’immagine chiara. Flash e Full osservano lo stesso JPEG con lo stesso prompt.',momentGuide:'Inquadra, metti in pausa un video oppure seleziona una foto.',momentGuideReady:'Scegli l’immagine più chiara, poi confronta esattamente questo momento.',photoGuideReady:'Verrà confrontata soltanto questa foto. Le altre restano locali nella coda.',
+    momentIntro:'Un’immagine e un prompt aperto. Flash e Full rispondono con parole proprie usando la stessa decodifica di riferimento ufficiale.',momentGuide:'Inquadra, metti in pausa un video oppure seleziona una foto.',momentGuideReady:'Scegli l’immagine più chiara, poi confronta esattamente questo momento.',photoGuideReady:'Verrà confrontata soltanto questa foto. Le altre restano locali nella coda.',
     momentDescribe:'Descrivi',momentObjects:'Oggetti',momentSpatial:'Spaziale',momentAnalyse:'Confronta questo momento',momentLooking:'Flash sta osservando…',momentOneFrame:'Full seguirà sulla stessa immagine selezionata',
     momentSees:'VISIONPSY VEDE',momentLocal:'Locale · offline',momentTryAgain:'Confronta un altro momento',momentUnclear:'Immagine poco chiara — prova un altro momento',momentError:'Questo modello non ha potuto analizzare l’immagine.',
-    speedPath:'PERCORSO VISIVO FLASH',qualityPath:'PERCORSO VISIVO FULL',modelWaiting:'In attesa',modelQueued:'In coda',modelRunning:'Analisi',modelReady:'Pronto',modelUnclear:'Poco chiaro',modelError:'Non disponibile',
+    speedPath:'PERCORSO VISIVO FLASH',qualityPath:'PERCORSO VISIVO FULL',modelWaiting:'In attesa',modelQueued:'In coda',modelRunning:'Analisi',modelReady:'Pronto',modelLimited:'Limite raggiunto',modelUnclear:'Poco chiaro',modelError:'Non disponibile',outputTokens:'token di output',
     flashLooking:'Flash sta osservando…',qualityLooking:'Full sta osservando…',cameraSource:'Fotocamera',fileSource:'Video caricato',photoSource:'Foto',cameraError:'Fotocamera non disponibile',videoError:'Questo video non può essere aperto nel browser.',photoError:'Queste foto non possono essere aperte. Scegli file JPEG, PNG o WebP.',
     changeSource:'Cambia sorgente',stageLabel:'Fotocamera, video o foto selezionata',selectedPhotos:'Foto selezionate',photoList:'Foto',momentPromptLabel:'Prompt di Moment Lens',cameraShort:'Fotocamera',videoShort:'Video',photosShort:'Foto',previousPhoto:'Foto precedente',nextPhoto:'Foto successiva',photoLabel:'Foto',
-    privacyNote:'Stessa immagine selezionata · Stesso prompt · Pesi Q4_K_M · 100% locale.'
+    privacyNote:'Stessa immagine selezionata · Stesso prompt · Greedy · Massimo 128 token di output · Q4_K_M · 100% locale.'
   }
 }
 
@@ -162,12 +164,23 @@ function formatInferenceTime(value){
   return milliseconds<1000?`${Math.round(milliseconds)} ms`:`${(milliseconds/1000).toFixed(2)} s`
 }
 
+function outputTokenCount(result){
+  const count=result?.output_tokens
+  return typeof count==='number'&&Number.isSafeInteger(count)&&count>=0?count:null
+}
+
+function formatOutputTokens(result){
+  const count=outputTokenCount(result)
+  return count===null?`— ${t('outputTokens')}`:`${count} ${t('outputTokens')}`
+}
+
 function safeVisibleAnswer(result){
   if(result?.status!=='clear'||typeof result.answer!=='string')return null
-  const value=result.answer.replace(/\s+/g,' ').trim()
-  if(!value||value.length>320||value.split(/\s+/).length>45)return null
-  if(/^UNCLEAR[.!]?$/i.test(value))return null
-  if(/```|[{}\[\]]|"?(?:events?|actor_ref|target_ref|action|confidence|evidence|context|model_?output)"?\s*[:=]|^\s*(?:json|schema|template|output)\s*(?::|=|-|—)|\b(?:use one short factual sentence|answer unclear|example json|schema|template)\b|\b[a-z_]{3,}\s*\|\s*[a-z_]{3,}\b/i.test(value))return null
+  const value=result.answer.replace(/\r\n?/g,'\n').trim()
+  if(!value)return null
+  const compact=value.replace(/\s+/g,' ').trim()
+  if(/^UNCLEAR[.!]?$/i.test(compact))return null
+  if(/```|[{}\[\]]|"?(?:events?|actor_ref|target_ref|action|confidence|evidence|context|model_?output)"?\s*[:=]|^\s*(?:json|schema|template|output)\s*(?::|=|-|—)|\b(?:what is visible in this image|give a detailed natural-language description of the main subject|what objects are visible in this image|how are the visible people, animals, objects, furniture|including only details that can be seen directly|describe what is directly visible in this image|cover the main subject, setting, posture|use natural language and begin directly with the subject|use one short factual sentence|answer unclear|example json|schema|template)\b|\b[a-z_]{3,}\s*\|\s*[a-z_]{3,}\b/i.test(compact))return null
   return value
 }
 
@@ -176,14 +189,15 @@ function renderModel(variant){
   const view=modelViews[variant]
   const safeAnswer=safeVisibleAnswer(view.result)
   let phase=view.phase
-  if(phase==='result')phase=safeAnswer?'clear':view.result?.status==='error'?'error':'unclear'
+  if(phase==='result')phase=safeAnswer?(view.result?.finish_reason==='length'?'limited':'clear'):view.result?.status==='error'?'error':'unclear'
   elements.card.className=`model-result-card ${phase}`
   elements.card.dataset.state=phase
   elements.card.setAttribute('aria-busy',String(phase==='running'))
-  const key={waiting:'modelWaiting',queued:'modelQueued',running:'modelRunning',clear:'modelReady',unclear:'modelUnclear',error:'modelError'}[phase]||'modelWaiting'
+  const key={waiting:'modelWaiting',queued:'modelQueued',running:'modelRunning',clear:'modelReady',limited:'modelLimited',unclear:'modelUnclear',error:'modelError'}[phase]||'modelWaiting'
   elements.state.textContent=t(key)
-  elements.answer.textContent=phase==='clear'?safeAnswer:phase==='unclear'?t('momentUnclear'):phase==='error'?t('momentError'):''
+  elements.answer.textContent=phase==='clear'||phase==='limited'?safeAnswer:phase==='unclear'?t('momentUnclear'):phase==='error'?t('momentError'):''
   elements.inference.textContent=view.result?formatInferenceTime(view.result.inference_ms):'— ms'
+  elements.outputTokens.textContent=formatOutputTokens(view.result)
 }
 
 function resetComparison({hideFreeze=true}={}){

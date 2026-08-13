@@ -5,7 +5,7 @@ A small local demo built around VisionPsy-Nano's intended single-image use.
 Point the camera at a scene, open a video, or choose one or more local photos.
 Select one clear image and press **Compare this moment**. The Studio freezes or
 converts exactly that selected image, then sends the
-same JPEG and the same short English prompt once to each of two local models:
+same JPEG and the same open English prompt once to each of two local models:
 VisionPsy-Nano-460M-Flash and VisionPsy-Nano-460M Full.
 
 ## What it does
@@ -14,16 +14,20 @@ VisionPsy-Nano-460M-Flash and VisionPsy-Nano-460M Full.
 - a navigable local queue when multiple photos are selected;
 - one manually selected frame per request;
 - three focused prompts: **Describe**, **Objects** and **Spatial**;
-- two short factual answers with model names and separately measured inference
-  times;
-- honest `Unclear frame — try another moment` results;
-- rejection of JSON, templates, prompt echoes, long responses, emotion,
-  intention and temporal inference;
+- each model's full generated natural-language response as returned, with model
+  name, measured inference time and output-token count;
+- the same reference-style greedy decode (`temperature: 0`, maximum 128 output
+  tokens) for both models;
+- an explicit **Max reached** state when a model uses the full 128-token budget,
+  while keeping its generated text visible instead of silently trimming it;
+- honest `Unclear image — try another moment` results;
+- rejection of JSON, schemas, templates and prompt echoes without semantically
+  rewriting or shortening otherwise valid natural-language responses;
 - local processing with no cloud upload.
 
 The comparison changes the VisionPsy variant, not the main-weight
-quantization: both main models use the official `Q4_K_M-imat` weights. Moment
-Only the currently selected photo is analysed; selecting multiple photos never
+quantization: both main models use the official `Q4_K_M-imat` weights. Only the
+currently selected photo is analysed; selecting multiple photos never
 starts an automatic batch or sends neighbouring images. Moment Lens deliberately
 does not perform video understanding, tracking,
 action recognition, timeline construction or narrative generation. It never
@@ -83,9 +87,9 @@ npm test
 ```
 
 The tests enforce the one-image/one-call-per-model contract, identical input
-and sampling for both variants, sequential execution, the exact prompts, raw
-answer preservation, `UNCLEAR` handling, output sanitation and inference-time
-measurement.
+and greedy decode for both variants, sequential execution, the exact prompts,
+raw and unshortened answer preservation, `UNCLEAR` handling, output sanitation,
+output-token counts and inference-time measurement.
 
 ## Accurate public claim
 

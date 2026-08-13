@@ -58,7 +58,7 @@
       <div class="moment-intro">
         <span class="eyebrow">ONE IMAGE · TWO MODELS · LOCAL</span>
         <h2>Moment Lens</h2>
-        <p data-i18n="momentIntro">Select one clear image. Flash and Full inspect the exact same JPEG with the exact same prompt.</p>
+        <p data-i18n="momentIntro">One image and one open prompt. Flash and Full answer in their own words with the same official-reference decode.</p>
       </div>
       <div id="momentGuide" class="moment-guide" data-i18n="momentGuide">Aim the camera, pause a video, or select a photo to inspect.</div>
       <div class="moment-presets" role="group" aria-label="Moment Lens prompt" data-i18n-aria="momentPromptLabel">
@@ -87,7 +87,9 @@
             <div class="model-meta">
               <span>Q4_K_M · imatrix</span>
               <span data-i18n="momentLocal">Local · offline</span>
+              <span>Greedy · max 128</span>
               <span id="flashInferenceTime">— ms</span>
+              <span id="flashOutputTokens">— output tokens</span>
             </div>
           </article>
           <article id="qualityCard" class="model-result-card waiting" data-state="waiting">
@@ -100,13 +102,15 @@
             <div class="model-meta">
               <span>Q4_K_M · imatrix</span>
               <span data-i18n="momentLocal">Local · offline</span>
+              <span>Greedy · max 128</span>
               <span id="qualityInferenceTime">— ms</span>
+              <span id="qualityOutputTokens">— output tokens</span>
             </div>
           </article>
         </div>
         <button id="momentTryAgainButton" class="moment-try-again" hidden data-i18n="momentTryAgain">Compare another moment</button>
       </section>
-      <footer class="privacy-note"><span aria-hidden="true"></span><p data-i18n="privacyNote">Same selected image · Same prompt · Q4_K_M weights · 100% local.</p></footer>
+      <footer class="privacy-note"><span aria-hidden="true"></span><p data-i18n="privacyNote">Same selected image · Same prompt · Greedy · 128 max output tokens · Q4_K_M · 100% local.</p></footer>
     </aside>
   </main>
   <input id="videoFile" type="file" accept="video/*" hidden>

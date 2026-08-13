@@ -34,21 +34,9 @@ const workerRoot=path.resolve(here,'..')
 const repositoryRoot=path.resolve(workerRoot,'..')
 const jpeg=Buffer.from([0xff,0xd8,0xff,0xd9])
 const expectedPrompts={
-  describe:`Describe the clearest visible fact involving the dog, a person, or an object in this image.
-
-Use one short factual sentence.
-Describe only what is directly visible.
-Do not infer emotion, intention, or what happened before or after.
-If the image is unclear, answer UNCLEAR.`,
-  objects:`Describe only the clearly visible relationship between the dog and an object in this image.
-
-Use one short factual sentence.
-Do not infer an action that requires multiple moments.
-If no clear dog-object relationship is visible, answer UNCLEAR.`,
-  spatial:`Describe where the dog is relative to the most relevant visible person, object, or furniture.
-
-Use one short factual sentence.
-If the spatial relationship is unclear, answer UNCLEAR.`
+  describe:`What is visible in this image? Give a detailed natural-language description of the main subject, setting, posture, visible objects, colors, contact, and spatial relationships, including only details that can be seen directly. If the image is too unclear to describe reliably, answer UNCLEAR.`,
+  objects:`What objects are visible in this image, and how do they relate to the main subject and to one another? Give a detailed natural-language description of their visible attributes, positions, and contact. Include only details that can be seen directly. If no reliable object relationship is visible, answer UNCLEAR.`,
+  spatial:`How are the visible people, animals, objects, furniture, and surroundings arranged in this image? Give a detailed natural-language description of relative positions, distance, overlap, and contact, including only details that can be seen directly. If the spatial arrangement is too unclear to describe reliably, answer UNCLEAR.`
 }
 
 const photo=(name,type,size=12)=>({name,type,size})
@@ -221,7 +209,7 @@ test('one frozen frame produces exactly one image and one VisionPsy call',async(
   assert.equal(calls[0].messages.length,1)
   assert.equal(calls[0].messages.flatMap(message=>message.content).filter(item=>item.type==='image_url').length,1)
   assert.equal(calls[0].messages.flatMap(message=>message.content).filter(item=>item.type==='text').length,1)
-  assert.equal(calls[0].maxTokens,80)
+  assert.equal(calls[0].maxTokens,128)
   assert.deepEqual(calls[0].context,{visual_mode:'single_image',image_count:1,preserve_raw:true})
   assert.equal(result.inference_ms,24.6)
   assert.equal(result.answer,'A dog is beside a green chair.')
@@ -258,12 +246,68 @@ test('the comparison sends one identical single-image request to each model',asy
     assert.equal(call.body.model,'visionpsy')
     assert.equal(call.body.max_tokens,MOMENT_LENS_SAMPLING.max_tokens)
     assert.equal(call.body.temperature,MOMENT_LENS_SAMPLING.temperature)
-    assert.equal(call.body.top_p,MOMENT_LENS_SAMPLING.top_p)
+    assert.equal('top_p' in call.body,false)
     assert.deepEqual(call.context,{visual_mode:'single_image',image_count:1,preserve_raw:true})
   }
   assert.equal(result.results[0].inference_ms,25)
   assert.equal(result.results[1].inference_ms,60)
   assert.equal(result.total_ms,110)
+})
+
+test('the reference decode is shared greedy 128 with no stochastic sampling fields',()=>{
+  assert.deepEqual(MOMENT_LENS_SAMPLING,{max_tokens:128,temperature:0})
+  const request=buildMomentLensRequest({jpeg,preset:'describe'})
+  assert.equal(request.api_body.max_tokens,128)
+  assert.equal(request.api_body.temperature,0)
+  assert.equal('top_p' in request.api_body,false)
+  assert.equal('top_k' in request.api_body,false)
+})
+
+test('output token count prefers standard usage and falls back to llama timings',async()=>{
+  const withUsage=await analyseMomentLens({jpeg,preset:'describe'},async()=>({
+    content:'A dog stands beside a chair.',
+    usage:{completion_tokens:7,prompt_tokens:44,total_tokens:51},
+    timings:{predicted_n:6}
+  }),()=>0)
+  assert.equal(withUsage.output_tokens,7)
+  assert.equal(withUsage.usage.completion_tokens,7)
+  assert.equal(withUsage.timings.predicted_n,6)
+
+  const withTimings=await analyseMomentLens({jpeg,preset:'describe'},async()=>({
+    content:'A dog stands beside a chair.',
+    usage:{prompt_tokens:44},
+    timings:{predicted_n:5}
+  }),()=>0)
+  assert.equal(withTimings.output_tokens,5)
+
+  const invalid=await analyseMomentLens({jpeg,preset:'describe'},async()=>({
+    content:'A dog stands beside a chair.',
+    usage:{completion_tokens:'7'},
+    timings:{predicted_n:-1}
+  }),()=>0)
+  assert.equal(invalid.output_tokens,null)
+})
+
+test('the model finish reason is preserved so the UI can disclose a 128-token stop',async()=>{
+  const result=await analyseMomentLens({jpeg,preset:'describe'},async()=>({
+    content:'A detailed response that stops at the configured boundary',
+    finish_reason:'length',
+    usage:{completion_tokens:128}
+  }),()=>0)
+  assert.equal(result.finish_reason,'length')
+  assert.equal(result.output_tokens,128)
+  assert.equal(result.status,'clear')
+})
+
+test('output token counts remain independent for both model cards and honest unclear results',async()=>{
+  const result=await analyseMomentLensPair({jpeg,preset:'describe'}, {
+    flash:async()=>({content:'A dog stands beside a chair.',usage:{completion_tokens:6}}),
+    quality:async()=>({content:'UNCLEAR',usage:{completion_tokens:1}})
+  },()=>0)
+  assert.equal(result.results[0].output_tokens,6)
+  assert.equal(result.results[0].status,'clear')
+  assert.equal(result.results[1].output_tokens,1)
+  assert.equal(result.results[1].status,'unclear')
 })
 
 test('Flash completes before the Full request starts',async()=>{
@@ -295,7 +339,7 @@ test('sanitation, raw output and timing remain independent per model',async()=>{
   assert.equal(flash.raw_answer,flashRaw)
   assert.equal(flash.inference_ms,10)
   assert.equal(quality.status,'clear')
-  assert.equal(quality.answer,'A dog is under a wooden table.')
+  assert.equal(quality.answer,'A dog is under a wooden table. A person is behind it.')
   assert.equal(quality.raw_answer,qualityRaw)
   assert.equal(quality.inference_ms,40)
   assert.equal(result.total_ms,70)
@@ -346,25 +390,25 @@ test('UNCLEAR remains an honest unclear result',async()=>{
   assert.equal(result.reason,'model_unclear')
 })
 
-test('a response reporting no relevant visible subject remains unclear',()=>{
+test('a response reporting no relevant visible subject remains raw model output',()=>{
   const raw='The image shows a green background with no visible dog, person, or object.'
   const result=sanitizeMomentLensAnswer(raw)
-  assert.equal(result.status,'unclear')
-  assert.equal(result.answer,null)
+  assert.equal(result.status,'clear')
+  assert.equal(result.answer,raw)
   assert.equal(result.raw_answer,raw)
-  assert.equal(result.reason,'no_relevant_visible_fact')
+  assert.equal(result.reason,null)
 })
 
-test('a model response that says the image is too blurry remains unclear',()=>{
+test('a prose response about blur is shown without a local semantic decision',()=>{
   const raw='The image is blurry and cannot be described.'
   const result=sanitizeMomentLensAnswer(raw)
-  assert.equal(result.status,'unclear')
-  assert.equal(result.answer,null)
+  assert.equal(result.status,'clear')
+  assert.equal(result.answer,raw)
   assert.equal(result.raw_answer,raw)
-  assert.equal(result.reason,'model_unclear')
+  assert.equal(result.reason,null)
 })
 
-test('schema, JSON, prompt echoes and oversized responses never become visible',()=>{
+test('schema, JSON and prompt echoes never become visible',()=>{
   const fixtures=[
     'In the video, [ { "events": [ { "actor_ref": "subject_1", "action": "petting|lying_down|standing_up|sitting_down|jumping_off|jumping_on|playing"',
     '```json\n{"events":[{"action":"playing"}]}\n```',
@@ -376,28 +420,36 @@ test('schema, JSON, prompt echoes and oversized responses never become visible',
     'Output - A dog is beside a chair.',
     'Describe the clearest visible fact involving the dog, a person, or an object in this image.',
     'Use one short factual sentence. Describe only what is directly visible.',
-    `The dog is beside a chair ${'very '.repeat(80)}far away.`
+    'What is visible in this image? Give a detailed natural-language description of the main subject, setting, posture, visible objects, colors, contact, and spatial relationships.'
   ]
   for(const fixture of fixtures){const result=sanitizeMomentLensAnswer(fixture);assert.equal(result.status,'unclear',fixture);assert.equal(result.answer,null,fixture)}
 })
 
-test('the raw answer is preserved while the visible answer stays one sentence',async()=>{
-  const raw='A dog is under a wooden table. A person is visible behind it.\n'
+test('the complete natural-language answer is preserved and shown without local truncation',async()=>{
+  const raw='A dog is under a wooden table. A person is visible behind it.\n\nA red bowl rests near the dog.\n'
   const result=await analyseMomentLens({jpeg,preset:'spatial'},async()=>raw)
   assert.equal(result.raw_answer,raw)
-  assert.equal(result.answer,'A dog is under a wooden table.')
+  assert.equal(result.answer,'A dog is under a wooden table. A person is visible behind it.\n\nA red bowl rests near the dog.')
   assert.equal(result.status,'clear')
 })
 
-test('emotion, intention and temporal claims are rejected rather than rewritten',()=>{
+test('natural prose longer than the former 45-word UI limit remains complete',()=>{
+  const raw='A brown dog stands on a pale rug beside a low wooden table. A blue bowl sits near its front paws, while a person in dark trousers stands behind the table. Sunlight enters from a window on the left and falls across the floor, the rug, and the side of the dog.'
+  assert.ok(raw.split(/\s+/).length>45)
+  const result=sanitizeMomentLensAnswer(raw)
+  assert.equal(result.status,'clear')
+  assert.equal(result.answer,raw)
+})
+
+test('natural-language model claims are preserved rather than semantically rewritten locally',()=>{
   for(const claim of [
     'The happy dog is beside a red ball.',
     'The dog wants to pick up the red ball.',
     'The dog has just moved away from the chair.'
   ]){
     const result=sanitizeMomentLensAnswer(claim)
-    assert.equal(result.status,'unclear')
-    assert.equal(result.answer,null)
+    assert.equal(result.status,'clear')
+    assert.equal(result.answer,claim)
     assert.equal(result.raw_answer,claim)
   }
 })
@@ -488,18 +540,28 @@ test('browser controller makes one streamed comparison request and contains no t
   assert.match(app,/getReader\(\)/)
   assert.match(app,/model-start/)
   assert.match(app,/model-result/)
+  assert.match(app,/finish_reason==='length'/)
+  assert.match(app,/elements\.answer\.textContent=/)
+  assert.doesNotMatch(app,/elements\.answer\.innerHTML=/)
   assert.doesNotMatch(app,/\/api\/moment-lens\/(?:flash|quality)/)
   assert.doesNotMatch(app,/contact[_ -]?sheet|semanticFrames|tracking|detector|narrative|deepAnalysis|youtube/i)
+})
+
+test('complete model answers can wrap without a CSS line clamp',()=>{
+  const css=fs.readFileSync(path.join(workerRoot,'public/styles.css'),'utf8')
+  assert.match(css,/\.model-answer\s*\{[^}]*white-space:pre-wrap/s)
+  assert.doesNotMatch(css,/(?:line-clamp|-webkit-line-clamp)/i)
 })
 
 test('public interface exposes two polished result cards and no Live or Deep modes',()=>{
   const html=fs.readFileSync(path.join(workerRoot,'public/index.html'),'utf8')
   assert.match(html,/<h1>Moment Lens<\/h1>/)
-  for(const id of ['flashCard','qualityCard','flashAnswer','qualityAnswer'])assert.match(html,new RegExp(`id=["']${id}["']`),id)
+  for(const id of ['flashCard','qualityCard','flashAnswer','qualityAnswer','flashOutputTokens','qualityOutputTokens'])assert.match(html,new RegExp(`id=["']${id}["']`),id)
   assert.match(html,/Flash/)
   assert.match(html,/Full/)
   assert.match(html,/Compare this moment/)
   assert.match(html,/Same selected image/)
+  assert.equal((html.match(/Greedy · max 128/g)||[]).length,2)
   assert.doesNotMatch(html,/Live Studio|Deep Analysis|YouTube URL|data-studio-mode|sessionModal/)
 })
 

@@ -268,6 +268,7 @@ export function createVisionPsyRuntimePool({
     const payload=JSON.parse(body)
     return {
       content:String(payload?.choices?.[0]?.message?.content||''),
+      finish_reason:String(payload?.choices?.[0]?.finish_reason||'')||null,
       usage:payload?.usage||null,
       timings:payload?.timings||null
     }
