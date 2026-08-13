@@ -103,6 +103,8 @@ video,#photoPreview,#momentFreeze { position:absolute; inset:0; width:100%; heig
 @keyframes model-shimmer { to { background-position:-200% 0; } }
 .model-result-card.unclear .model-answer { color:#b9c9be; }
 .model-result-card.error .model-answer { color:#e9c5c0; }
+.model-result-card.clear .model-answer,.model-result-card.limited .model-answer { animation:safe-answer-in .28s ease both; }
+@keyframes safe-answer-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
 .model-meta { display:flex; flex-wrap:wrap; gap:4px; margin-top:auto; }
 .model-meta span { max-width:100%; padding:4px 5px; border:1px solid #2d4736; border-radius:999px; color:#a4b8aa; background:#09130d; font-size:9px; white-space:nowrap; }
 .model-meta span:nth-child(2) { color:#82d59a; border-color:#315f40; }

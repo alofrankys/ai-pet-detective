@@ -58,7 +58,7 @@
       <div class="moment-intro">
         <span class="eyebrow">ONE IMAGE · TWO MODELS · LOCAL</span>
         <h2>Moment Lens</h2>
-        <p data-i18n="momentIntro">One image and one open prompt. Flash and Full answer in their own words with the same official-reference decode.</p>
+        <p data-i18n="momentIntro">One image and one open prompt. Flash and Full answer in their own words with the same deterministic greedy decode.</p>
       </div>
       <div id="momentGuide" class="moment-guide" data-i18n="momentGuide">Aim the camera, pause a video, or select a photo to inspect.</div>
       <div class="moment-presets" role="group" aria-label="Moment Lens prompt" data-i18n-aria="momentPromptLabel">
@@ -69,7 +69,7 @@
       <button id="momentAnalyseButton" class="moment-analyse" disabled data-i18n="momentAnalyse">Compare this moment</button>
       <div id="momentAnalysing" class="moment-analysing" hidden role="status" aria-live="polite">
         <span class="moment-spinner" aria-hidden="true"></span>
-        <div><strong id="momentAnalysingTitle" data-i18n="momentLooking">Flash is looking…</strong><small data-i18n="momentOneFrame">Full follows on the same selected image</small></div>
+        <div><strong id="momentAnalysingTitle" data-i18n="momentLooking">Both models are looking…</strong><small data-i18n="momentOneFrame">Same image · same prompt · simultaneous local inference</small></div>
       </div>
       <section id="comparisonResults" class="comparison-results" hidden aria-labelledby="comparisonTitle">
         <div class="comparison-heading">
@@ -87,7 +87,7 @@
             <div class="model-meta">
               <span>Q4_K_M · imatrix</span>
               <span data-i18n="momentLocal">Local · offline</span>
-              <span>Greedy · max 128</span>
+              <span>Greedy · max 256</span>
               <span id="flashInferenceTime">— ms</span>
               <span id="flashOutputTokens">— output tokens</span>
             </div>
@@ -102,7 +102,7 @@
             <div class="model-meta">
               <span>Q4_K_M · imatrix</span>
               <span data-i18n="momentLocal">Local · offline</span>
-              <span>Greedy · max 128</span>
+              <span>Greedy · max 256</span>
               <span id="qualityInferenceTime">— ms</span>
               <span id="qualityOutputTokens">— output tokens</span>
             </div>
@@ -110,7 +110,7 @@
         </div>
         <button id="momentTryAgainButton" class="moment-try-again" hidden data-i18n="momentTryAgain">Compare another moment</button>
       </section>
-      <footer class="privacy-note"><span aria-hidden="true"></span><p data-i18n="privacyNote">Same selected image · Same prompt · Greedy · 128 max output tokens · Q4_K_M · 100% local.</p></footer>
+      <footer class="privacy-note"><span aria-hidden="true"></span><p data-i18n="privacyNote">Same selected image · Same prompt · Greedy · 256 max output tokens · Q4_K_M · 100% local.</p></footer>
     </aside>
   </main>
   <input id="videoFile" type="file" accept="video/*" hidden>

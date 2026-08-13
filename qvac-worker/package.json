@@ -5,6 +5,9 @@
   "scripts": {
     "start": "node studio.mjs",
     "studio": "node studio.mjs",
+    "benchmark:moment": "node benchmark-moment-lens.mjs",
+    "judge:prepare": "node prepare-judge-sample.mjs",
+    "judge:finalize": "node finalize-judge-report.mjs",
     "models:download": "node download-visionpsy-q4.mjs",
     "models:verify": "node download-visionpsy-q4.mjs --verify-only",
     "test": "node --test tests/moment-lens.test.mjs",

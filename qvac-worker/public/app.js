@@ -58,24 +58,24 @@ const copy={
   en:{
     language:'UI language',engineStarting:'Starting Q4 models',engineReady:'2 Q4 models · local',engineUnavailable:'VisionPsy models unavailable',
     heroTitle:'One image. Two visual paths.',heroCopy:'Use the camera, open a video, or choose one or more photos.',startCamera:'Start camera',openVideo:'Open video',openPhotos:'Open photos',
-    momentIntro:'One image and one open prompt. Flash and Full answer in their own words with the same official-reference decode.',momentGuide:'Aim the camera, pause a video, or select a photo to inspect.',momentGuideReady:'Choose the clearest image, then compare exactly this moment.',photoGuideReady:'Only this selected photo will be compared. Other photos stay local in the queue.',
-    momentDescribe:'Describe',momentObjects:'Objects',momentSpatial:'Spatial',momentAnalyse:'Compare this moment',momentLooking:'Flash is looking…',momentOneFrame:'Full follows on the same selected image',
+    momentIntro:'One image and one open prompt. Flash and Full answer in their own words with the same deterministic greedy decode.',momentGuide:'Aim the camera, pause a video, or select a photo to inspect.',momentGuideReady:'Choose the clearest image, then compare exactly this moment.',photoGuideReady:'Only this selected photo will be compared. Other photos stay local in the queue.',
+    momentDescribe:'Describe',momentObjects:'Objects',momentSpatial:'Spatial',momentAnalyse:'Compare this moment',momentLooking:'Both models are looking…',momentOneFrame:'Same image · same prompt · simultaneous local inference',
     momentSees:'VISIONPSY SEES',momentLocal:'Local · offline',momentTryAgain:'Compare another moment',momentUnclear:'Unclear image — try another moment',momentError:'This model could not analyse the image.',
     speedPath:'FLASH VISUAL PATH',qualityPath:'FULL VISUAL PATH',modelWaiting:'Waiting',modelQueued:'Queued',modelRunning:'Analysing',modelReady:'Ready',modelLimited:'Max reached',modelUnclear:'Unclear',modelError:'Unavailable',outputTokens:'output tokens',
     flashLooking:'Flash is looking…',qualityLooking:'Full is looking…',cameraSource:'Camera',fileSource:'Uploaded video',photoSource:'Photo',cameraError:'Camera unavailable',videoError:'This video cannot be opened in the browser.',photoError:'These photos cannot be opened. Choose JPEG, PNG, or WebP files.',
     changeSource:'Change source',stageLabel:'Camera, video, or selected photo',selectedPhotos:'Selected photos',photoList:'Photos',momentPromptLabel:'Moment Lens prompt',cameraShort:'Camera',videoShort:'Video',photosShort:'Photos',previousPhoto:'Previous photo',nextPhoto:'Next photo',photoLabel:'Photo',
-    privacyNote:'Same selected image · Same prompt · Greedy · 128 max output tokens · Q4_K_M · 100% local.'
+    privacyNote:'Same selected image · Same prompt · Greedy · 256 max output tokens · Q4_K_M · 100% local.'
   },
   it:{
     language:'Lingua UI',engineStarting:'Avvio modelli Q4',engineReady:'2 modelli Q4 · locali',engineUnavailable:'Modelli VisionPsy non disponibili',
     heroTitle:'Un’immagine. Due percorsi visivi.',heroCopy:'Usa la fotocamera, apri un video oppure scegli una o più foto.',startCamera:'Avvia fotocamera',openVideo:'Apri video',openPhotos:'Apri foto',
-    momentIntro:'Un’immagine e un prompt aperto. Flash e Full rispondono con parole proprie usando la stessa decodifica di riferimento ufficiale.',momentGuide:'Inquadra, metti in pausa un video oppure seleziona una foto.',momentGuideReady:'Scegli l’immagine più chiara, poi confronta esattamente questo momento.',photoGuideReady:'Verrà confrontata soltanto questa foto. Le altre restano locali nella coda.',
-    momentDescribe:'Descrivi',momentObjects:'Oggetti',momentSpatial:'Spaziale',momentAnalyse:'Confronta questo momento',momentLooking:'Flash sta osservando…',momentOneFrame:'Full seguirà sulla stessa immagine selezionata',
+    momentIntro:'Un’immagine e un prompt aperto. Flash e Full rispondono con parole proprie usando la stessa decodifica greedy deterministica.',momentGuide:'Inquadra, metti in pausa un video oppure seleziona una foto.',momentGuideReady:'Scegli l’immagine più chiara, poi confronta esattamente questo momento.',photoGuideReady:'Verrà confrontata soltanto questa foto. Le altre restano locali nella coda.',
+    momentDescribe:'Descrivi',momentObjects:'Oggetti',momentSpatial:'Spaziale',momentAnalyse:'Confronta questo momento',momentLooking:'Entrambi i modelli stanno osservando…',momentOneFrame:'Stessa immagine · stesso prompt · inferenza locale simultanea',
     momentSees:'VISIONPSY VEDE',momentLocal:'Locale · offline',momentTryAgain:'Confronta un altro momento',momentUnclear:'Immagine poco chiara — prova un altro momento',momentError:'Questo modello non ha potuto analizzare l’immagine.',
     speedPath:'PERCORSO VISIVO FLASH',qualityPath:'PERCORSO VISIVO FULL',modelWaiting:'In attesa',modelQueued:'In coda',modelRunning:'Analisi',modelReady:'Pronto',modelLimited:'Limite raggiunto',modelUnclear:'Poco chiaro',modelError:'Non disponibile',outputTokens:'token di output',
     flashLooking:'Flash sta osservando…',qualityLooking:'Full sta osservando…',cameraSource:'Fotocamera',fileSource:'Video caricato',photoSource:'Foto',cameraError:'Fotocamera non disponibile',videoError:'Questo video non può essere aperto nel browser.',photoError:'Queste foto non possono essere aperte. Scegli file JPEG, PNG o WebP.',
     changeSource:'Cambia sorgente',stageLabel:'Fotocamera, video o foto selezionata',selectedPhotos:'Foto selezionate',photoList:'Foto',momentPromptLabel:'Prompt di Moment Lens',cameraShort:'Fotocamera',videoShort:'Video',photosShort:'Foto',previousPhoto:'Foto precedente',nextPhoto:'Foto successiva',photoLabel:'Foto',
-    privacyNote:'Stessa immagine selezionata · Stesso prompt · Greedy · Massimo 128 token di output · Q4_K_M · 100% locale.'
+    privacyNote:'Stessa immagine selezionata · Stesso prompt · Greedy · Massimo 256 token di output · Q4_K_M · 100% locale.'
   }
 }
 
@@ -94,10 +94,11 @@ let busy=false
 let requestToken=0
 let resumeAfterTry=false
 let statusTimer=null
+let modelProgressTimer=null
 let activeController=null
 let runtimeState='starting'
 let readyModelCount=0
-const modelViews={flash:{phase:'waiting',result:null},quality:{phase:'waiting',result:null}}
+const modelViews={flash:{phase:'waiting',result:null,startedAt:null},quality:{phase:'waiting',result:null,startedAt:null}}
 
 function t(key){return copy[language][key]||copy.en[key]||key}
 
@@ -194,13 +195,16 @@ function renderModel(variant){
   elements.card.dataset.state=phase
   elements.card.setAttribute('aria-busy',String(phase==='running'))
   const key={waiting:'modelWaiting',queued:'modelQueued',running:'modelRunning',clear:'modelReady',limited:'modelLimited',unclear:'modelUnclear',error:'modelError'}[phase]||'modelWaiting'
-  elements.state.textContent=t(key)
+  const elapsed=phase==='running'&&Number.isFinite(view.startedAt)?Math.max(0,performance.now()-view.startedAt):null
+  elements.state.textContent=elapsed===null?t(key):`${t(key)} · ${(elapsed/1000).toFixed(1)}s`
   elements.answer.textContent=phase==='clear'||phase==='limited'?safeAnswer:phase==='unclear'?t('momentUnclear'):phase==='error'?t('momentError'):''
   elements.inference.textContent=view.result?formatInferenceTime(view.result.inference_ms):'— ms'
   elements.outputTokens.textContent=formatOutputTokens(view.result)
 }
 
 function resetComparison({hideFreeze=true}={}){
+  clearInterval(modelProgressTimer)
+  modelProgressTimer=null
   analysing.hidden=true
   comparisonResults.hidden=true
   tryAgainButton.hidden=true
@@ -208,6 +212,7 @@ function resetComparison({hideFreeze=true}={}){
   for(const variant of Object.keys(modelViews)){
     modelViews[variant].phase='waiting'
     modelViews[variant].result=null
+    modelViews[variant].startedAt=null
     renderModel(variant)
   }
   if(hideFreeze)freezeCanvas.classList.remove('visible')
@@ -241,14 +246,18 @@ function clearVideoSource(){
 }
 
 function prepareComparison(){
-  modelViews.flash={phase:'queued',result:null}
-  modelViews.quality={phase:'queued',result:null}
+  modelViews.flash={phase:'queued',result:null,startedAt:null}
+  modelViews.quality={phase:'queued',result:null,startedAt:null}
   renderModel('flash')
   renderModel('quality')
   comparisonResults.hidden=false
   tryAgainButton.hidden=true
-  analysingTitle.textContent=t('flashLooking')
+  analysingTitle.textContent=t('momentLooking')
   analysing.hidden=false
+  clearInterval(modelProgressTimer)
+  modelProgressTimer=setInterval(()=>{
+    for(const variant of Object.keys(modelViews))if(modelViews[variant].phase==='running')renderModel(variant)
+  },100)
 }
 
 function stopCurrentSource(){
@@ -435,13 +444,14 @@ function handleComparisonEvent(event){
   if(!event||typeof event!=='object')return false
   if(event.type==='model-start'&&Object.hasOwn(modelViews,event.variant)){
     modelViews[event.variant].phase='running'
+    modelViews[event.variant].startedAt=performance.now()
     renderModel(event.variant)
-    analysingTitle.textContent=event.variant==='quality'?t('qualityLooking'):t('flashLooking')
   }
   if(event.type==='model-result'&&Object.hasOwn(modelViews,event.result?.variant)){
     const variant=event.result.variant
     modelViews[variant].phase='result'
     modelViews[variant].result=event.result
+    modelViews[variant].startedAt=null
     renderModel(variant)
   }
   if(event.type==='comparison-complete')return true
@@ -506,6 +516,8 @@ async function analyseCurrentMoment(){
     if(token===requestToken){
       activeController=null
       busy=false
+      clearInterval(modelProgressTimer)
+      modelProgressTimer=null
       analysing.hidden=true
       comparisonResults.hidden=false
       tryAgainButton.hidden=false
@@ -534,7 +546,7 @@ function applyLanguage(){
   document.querySelectorAll('[data-i18n-aria]').forEach(element=>{element.setAttribute('aria-label',t(element.dataset.i18nAria))})
   if(currentSource&&sourceReady&&!sourceLoading)renderSourcePresentation()
   else if(!sourceLoading){momentGuide.textContent=t('momentGuide');momentGuide.classList.remove('ready')}
-  if(busy)analysingTitle.textContent=modelViews.quality.phase==='running'?t('qualityLooking'):t('flashLooking')
+  if(busy)analysingTitle.textContent=t('momentLooking')
   renderModel('flash')
   renderModel('quality')
   renderRuntimeStatus()
@@ -586,7 +598,7 @@ analyseButton.addEventListener('click',analyseCurrentMoment)
 tryAgainButton.addEventListener('click',tryAnotherMoment)
 languageSelect.addEventListener('change',applyLanguage)
 video.addEventListener('play',()=>{if(!busy&&freezeCanvas.classList.contains('visible'))tryAnotherMoment()})
-window.addEventListener('pagehide',()=>{clearInterval(statusTimer);stopCurrentSource()})
+window.addEventListener('pagehide',()=>{clearInterval(statusTimer);clearInterval(modelProgressTimer);stopCurrentSource()})
 
 applyLanguage()
 refreshStatus()

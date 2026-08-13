@@ -16,14 +16,31 @@ VisionPsy-Nano-460M-Flash and VisionPsy-Nano-460M Full.
 - three focused prompts: **Describe**, **Objects** and **Spatial**;
 - each model's full generated natural-language response as returned, with model
   name, measured inference time and output-token count;
-- the same reference-style greedy decode (`temperature: 0`, maximum 128 output
+- the same deterministic greedy decode (`temperature: 0`, maximum 256 output
   tokens) for both models;
-- an explicit **Max reached** state when a model uses the full 128-token budget,
+- an explicit **Max reached** state when a model uses the full 256-token budget,
   while keeping its generated text visible instead of silently trimming it;
 - honest `Unclear image — try another moment` results;
 - rejection of JSON, schemas, templates and prompt echoes without semantically
   rewriting or shortening otherwise valid natural-language responses;
 - local processing with no cloud upload.
+
+Flash and Full start simultaneously in the Studio. Each card exposes its own
+live elapsed time while the local model is running. Generated text is revealed
+only after the complete answer passes the local echo/schema safety check, so an
+invalid raw draft cannot flash in the public interface.
+
+### Why the ceiling changed from 128 to 256
+
+The first real-data pass kept the 128-token ceiling used by the initial
+reference-style setup. Across 71 local dog photos, generation stopped because
+of that limit for 67/71 Flash responses (94.4%) and 38/71 Full responses
+(53.5%), despite zero inference failures. This frequently left descriptions
+unfinished. Moment Lens therefore uses the same 256-token safety ceiling for
+both variants. Natural end-of-sequence stopping remains enabled, and a response
+that reaches 256 is still disclosed as **Max reached** rather than hidden or
+rewritten. These 71-image figures are directional demo diagnostics, not an
+official model benchmark.
 
 The comparison changes the VisionPsy variant, not the main-weight
 quantization: both main models use the official `Q4_K_M-imat` weights. Only the
@@ -87,7 +104,7 @@ npm test
 ```
 
 The tests enforce the one-image/one-call-per-model contract, identical input
-and greedy decode for both variants, sequential execution, the exact prompts,
+and greedy decode for both variants, simultaneous execution, the exact prompts,
 raw and unshortened answer preservation, `UNCLEAR` handling, output sanitation,
 output-token counts and inference-time measurement.
 

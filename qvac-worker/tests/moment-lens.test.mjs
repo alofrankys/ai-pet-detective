@@ -209,7 +209,7 @@ test('one frozen frame produces exactly one image and one VisionPsy call',async(
   assert.equal(calls[0].messages.length,1)
   assert.equal(calls[0].messages.flatMap(message=>message.content).filter(item=>item.type==='image_url').length,1)
   assert.equal(calls[0].messages.flatMap(message=>message.content).filter(item=>item.type==='text').length,1)
-  assert.equal(calls[0].maxTokens,128)
+  assert.equal(calls[0].maxTokens,256)
   assert.deepEqual(calls[0].context,{visual_mode:'single_image',image_count:1,preserve_raw:true})
   assert.equal(result.inference_ms,24.6)
   assert.equal(result.answer,'A dog is beside a green chair.')
@@ -249,15 +249,15 @@ test('the comparison sends one identical single-image request to each model',asy
     assert.equal('top_p' in call.body,false)
     assert.deepEqual(call.context,{visual_mode:'single_image',image_count:1,preserve_raw:true})
   }
-  assert.equal(result.results[0].inference_ms,25)
-  assert.equal(result.results[1].inference_ms,60)
+  assert.equal(result.results[0].inference_ms,30)
+  assert.equal(result.results[1].inference_ms,65)
   assert.equal(result.total_ms,110)
 })
 
-test('the reference decode is shared greedy 128 with no stochastic sampling fields',()=>{
-  assert.deepEqual(MOMENT_LENS_SAMPLING,{max_tokens:128,temperature:0})
+test('the data-driven decode is shared greedy 256 with no stochastic sampling fields',()=>{
+  assert.deepEqual(MOMENT_LENS_SAMPLING,{max_tokens:256,temperature:0})
   const request=buildMomentLensRequest({jpeg,preset:'describe'})
-  assert.equal(request.api_body.max_tokens,128)
+  assert.equal(request.api_body.max_tokens,256)
   assert.equal(request.api_body.temperature,0)
   assert.equal('top_p' in request.api_body,false)
   assert.equal('top_k' in request.api_body,false)
@@ -288,14 +288,14 @@ test('output token count prefers standard usage and falls back to llama timings'
   assert.equal(invalid.output_tokens,null)
 })
 
-test('the model finish reason is preserved so the UI can disclose a 128-token stop',async()=>{
+test('the model finish reason is preserved so the UI can disclose a 256-token stop',async()=>{
   const result=await analyseMomentLens({jpeg,preset:'describe'},async()=>({
     content:'A detailed response that stops at the configured boundary',
     finish_reason:'length',
-    usage:{completion_tokens:128}
+    usage:{completion_tokens:256}
   }),()=>0)
   assert.equal(result.finish_reason,'length')
-  assert.equal(result.output_tokens,128)
+  assert.equal(result.output_tokens,256)
   assert.equal(result.status,'clear')
 })
 
@@ -310,19 +310,24 @@ test('output token counts remain independent for both model cards and honest unc
   assert.equal(result.results[1].status,'unclear')
 })
 
-test('Flash completes before the Full request starts',async()=>{
+test('Flash and Full start simultaneously and complete independently',async()=>{
   const trace=[]
   let releaseFlash
+  let releaseQuality
   const flashGate=new Promise(resolve=>{releaseFlash=resolve})
+  const qualityGate=new Promise(resolve=>{releaseQuality=resolve})
   const comparison=analyseMomentLensPair({jpeg,preset:'objects'}, {
     flash:async()=>{trace.push('flash:start');await flashGate;trace.push('flash:end');return 'A dog is beside a red ball.'},
-    quality:async()=>{trace.push('quality:start');return 'A dog is next to a red ball.'}
+    quality:async()=>{trace.push('quality:start');await qualityGate;trace.push('quality:end');return 'A dog is next to a red ball.'}
   },()=>0)
 
-  assert.deepEqual(trace,['flash:start'])
+  assert.deepEqual(trace,['flash:start','quality:start'])
+  releaseQuality()
+  await Promise.resolve()
+  assert.deepEqual(trace,['flash:start','quality:start','quality:end'])
   releaseFlash()
   await comparison
-  assert.deepEqual(trace,['flash:start','flash:end','quality:start'])
+  assert.deepEqual(trace,['flash:start','quality:start','quality:end','flash:end'])
 })
 
 test('sanitation, raw output and timing remain independent per model',async()=>{
@@ -337,11 +342,11 @@ test('sanitation, raw output and timing remain independent per model',async()=>{
   assert.equal(flash.status,'unclear')
   assert.equal(flash.answer,null)
   assert.equal(flash.raw_answer,flashRaw)
-  assert.equal(flash.inference_ms,10)
+  assert.equal(flash.inference_ms,20)
   assert.equal(quality.status,'clear')
   assert.equal(quality.answer,'A dog is under a wooden table. A person is behind it.')
   assert.equal(quality.raw_answer,qualityRaw)
-  assert.equal(quality.inference_ms,40)
+  assert.equal(quality.inference_ms,50)
   assert.equal(result.total_ms,70)
 })
 
@@ -362,7 +367,7 @@ test('one model failure cannot block or contaminate the other model',async()=>{
   assert.equal(quality.status,'clear')
   assert.equal(quality.answer,'A dog is on a grey rug.')
   assert.deepEqual(updates.map(update=>`${update.type}:${update.variant||update.result?.variant}`),[
-    'model-start:flash','model-result:flash','model-start:quality','model-result:quality'
+    'model-start:flash','model-start:quality','model-result:flash','model-result:quality'
   ])
 })
 
@@ -561,7 +566,7 @@ test('public interface exposes two polished result cards and no Live or Deep mod
   assert.match(html,/Full/)
   assert.match(html,/Compare this moment/)
   assert.match(html,/Same selected image/)
-  assert.equal((html.match(/Greedy · max 128/g)||[]).length,2)
+  assert.equal((html.match(/Greedy · max 256/g)||[]).length,2)
   assert.doesNotMatch(html,/Live Studio|Deep Analysis|YouTube URL|data-studio-mode|sessionModal/)
 })
 

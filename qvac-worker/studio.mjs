@@ -58,9 +58,10 @@ export const MOMENT_LENS_MODELS=Object.freeze(VISIONPSY_MODELS.map(model=>Object
   model_file:model.modelFile,
   projector_file:model.projectorFile
 })))
-// Mirrors QVAC's reference decode: deterministic greedy generation with the
-// same 128-token maximum; a length stop is preserved and disclosed in the UI.
-export const MOMENT_LENS_SAMPLING=Object.freeze({max_tokens:128,temperature:0})
+// Keep deterministic greedy generation for a fair A/B comparison. The initial
+// 128-token reference ceiling truncated 67/71 Flash and 38/71 Full responses on
+// the real-image set, so Moment Lens uses a shared 256-token safety ceiling.
+export const MOMENT_LENS_SAMPLING=Object.freeze({max_tokens:256,temperature:0})
 export const MOMENT_LENS_PROMPTS=Object.freeze({
   describe:`What is visible in this image? Give a detailed natural-language description of the main subject, setting, posture, visible objects, colors, contact, and spatial relationships, including only details that can be seen directly. If the image is too unclear to describe reliably, answer UNCLEAR.`,
   objects:`What objects are visible in this image, and how do they relate to the main subject and to one another? Give a detailed natural-language description of their visible attributes, positions, and contact. Include only details that can be seen directly. If no reliable object relationship is visible, answer UNCLEAR.`,
@@ -197,13 +198,12 @@ export async function analyseMomentLensPair(
     quality:modelCalls.quality||((body)=>runtimePool.completion(VISIONPSY_MODELS[1],body))
   }
   const comparisonStarted=Number(clock())
-  const results=[]
-  for(const spec of VISIONPSY_MODELS){
-    onUpdate({type:'model-start',variant:spec.variant})
+  for(const spec of VISIONPSY_MODELS)onUpdate({type:'model-start',variant:spec.variant})
+  const results=await Promise.all(VISIONPSY_MODELS.map(async spec=>{
     const result=await runVariant(spec,request,calls[spec.variant],clock)
-    results.push(result)
     onUpdate({type:'model-result',result})
-  }
+    return result
+  }))
   return {
     version:2,
     mode:'moment_lens_compare',
@@ -231,6 +231,7 @@ const server=http.createServer(async(req,res)=>{
       if(!models.every(model=>model.ready))ensureAllRuntimes().catch(()=>{})
       return json(res,200,{
         studio:{build:'moment-lens-compare-q4',mode:'single-image-comparison'},
+        sampling:MOMENT_LENS_SAMPLING,
         comparison_ready:models.every(model=>model.ready),
         models,
         privacy:'local'
