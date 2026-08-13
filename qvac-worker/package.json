@@ -1,22 +1,11 @@
 {
-  "name": "ai-pet-detective-qvac-worker",
+  "name": "visionpsy-moment-lens",
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node node_modules/bare-runtime/bin/bare detector.mjs",
+    "start": "node studio.mjs",
     "studio": "node studio.mjs",
-    "test:moment": "node --test tests/moment-lens.test.mjs",
-    "test:narrative": "node --test tests/narrative-engine-v2.test.mjs",
-    "test:v3": "node --test tests/deep-video-v3.test.mjs",
-    "benchmark:regression": "node tests/regression-video-001.benchmark.mjs",
-    "setup:models": "node setup-models.mjs",
-    "probe:model": "node node_modules/bare-runtime/bin/bare probe-onnx.mjs"
-  },
-  "dependencies": {
-    "@mediapipe/tasks-vision": "^1.0.1",
-    "@qvac/onnx": "^0.15.1",
-    "bare-buffer": "^3.6.2",
-    "bare-http1": "^4.5.7",
-    "bare-runtime": "^1.31.0"
+    "test": "node --test tests/moment-lens.test.mjs",
+    "test:moment": "node --test tests/moment-lens.test.mjs"
   }
 }

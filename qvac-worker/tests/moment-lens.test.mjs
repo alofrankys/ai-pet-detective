@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import {fileURLToPath} from 'node:url'
 import {
   MOMENT_LENS_MODEL,
   MOMENT_LENS_PROMPTS,
@@ -8,6 +11,9 @@ import {
   sanitizeMomentLensAnswer
 } from '../studio.mjs'
 
+const here=path.dirname(fileURLToPath(import.meta.url))
+const workerRoot=path.resolve(here,'..')
+const repositoryRoot=path.resolve(workerRoot,'..')
 const jpeg=Buffer.from([0xff,0xd8,0xff,0xd9])
 const expectedPrompts={
   describe:`Describe the clearest visible fact involving the dog, a person, or an object in this image.
@@ -114,4 +120,47 @@ test('request builder accepts only a fixed preset and one JPEG payload',()=>{
   assert.match(request.messages[0].content[0].image_url.url,/^data:image\/jpeg;base64,/)
   assert.throws(()=>buildMomentLensRequest({jpeg,preset:'custom'}),/Unknown Moment Lens preset/)
   assert.throws(()=>buildMomentLensRequest({preset:'describe'}),/requires one JPEG image/)
+})
+
+test('Studio exposes only the Moment Lens analysis route',()=>{
+  const server=fs.readFileSync(path.join(workerRoot,'studio.mjs'),'utf8')
+  assert.match(server,/\/api\/moment-lens/)
+  assert.doesNotMatch(server,/\/api\/(?:detect|pose|interpret|session-summary|finalize-session|deep|youtube)/)
+  assert.doesNotMatch(server,/contact[_ -]?sheet|detectorHealth|startDetector|NarrativeEngine|analyseDeepWindow/i)
+})
+
+test('browser controller makes one Moment request and contains no temporal pipeline',()=>{
+  const app=fs.readFileSync(path.join(workerRoot,'public/app.js'),'utf8')
+  assert.equal((app.match(/fetch\('\/api\/moment-lens'/g)||[]).length,1)
+  assert.doesNotMatch(app,/contact[_ -]?sheet|semanticFrames|tracking|detector|narrative|deepAnalysis|youtube/i)
+})
+
+test('public interface contains no Live or Deep modes',()=>{
+  const html=fs.readFileSync(path.join(workerRoot,'public/index.html'),'utf8')
+  assert.match(html,/<h1>Moment Lens<\/h1>/)
+  assert.doesNotMatch(html,/Live Studio|Deep Analysis|YouTube URL|data-studio-mode|sessionModal/)
+})
+
+test('Moment Lens has no runtime package dependencies',()=>{
+  const manifest=JSON.parse(fs.readFileSync(path.join(workerRoot,'package.json'),'utf8'))
+  const lock=JSON.parse(fs.readFileSync(path.join(workerRoot,'package-lock.json'),'utf8'))
+  assert.deepEqual(manifest.dependencies,undefined)
+  assert.deepEqual(manifest.devDependencies,undefined)
+  assert.deepEqual(lock.packages[''].dependencies,undefined)
+  assert.deepEqual(Object.keys(lock.packages),[''])
+})
+
+test('legacy detector, Narrative and Deep modules are absent',()=>{
+  const removed=[
+    'pet_detective/pipeline.py',
+    'pet_detective/narrative_v2.py',
+    'pyproject.toml',
+    'qvac-worker/detector.mjs',
+    'qvac-worker/public/narrative-engine-v2.js',
+    'qvac-worker/public/deep-video-v3.js',
+    'qvac-worker/tests/narrative-engine-v2.test.mjs',
+    'qvac-worker/tests/deep-video-v3.test.mjs',
+    'qvac-worker/tests/regression-video-001.benchmark.mjs'
+  ]
+  for(const relative of removed)assert.equal(fs.existsSync(path.join(repositoryRoot,relative)),false,relative)
 })
