@@ -18,6 +18,16 @@ import {
   VISIONPSY_WEIGHT_QUANTIZATION,
   inspectVisionPsyRuntime
 } from '../visionpsy-runtimes.mjs'
+import {
+  clampPhotoIndex,
+  createObjectUrlLease,
+  createPhotoSelection,
+  filterSupportedPhotoFiles,
+  isSupportedPhotoFile,
+  movePhotoIndex,
+  photoCounter,
+  selectPhotoIndex
+} from '../public/photo-selection.js'
 
 const here=path.dirname(fileURLToPath(import.meta.url))
 const workerRoot=path.resolve(here,'..')
@@ -40,6 +50,92 @@ If no clear dog-object relationship is visible, answer UNCLEAR.`,
 Use one short factual sentence.
 If the spatial relationship is unclear, answer UNCLEAR.`
 }
+
+const photo=(name,type,size=12)=>({name,type,size})
+
+test('photo selection accepts only non-empty JPEG, PNG and WebP files',()=>{
+  const fixtures=[
+    [photo('dog.jpg','image/jpeg'),true],
+    [photo('dog.jpeg','image/jpg'),true],
+    [photo('dog.png','image/png'),true],
+    [photo('dog.webp','image/webp'),true],
+    [photo('DOG.JPEG',''),true],
+    [photo('dog.WEBP','application/octet-stream'),true],
+    [photo('fake.jpg','text/plain'),false],
+    [photo('dog.gif','image/gif'),false],
+    [photo('empty.png','image/png',0),false],
+    [null,false]
+  ]
+  for(const [file,expected] of fixtures)assert.equal(isSupportedPhotoFile(file),expected,file?.name)
+  assert.deepEqual(filterSupportedPhotoFiles(fixtures.map(([file])=>file)),fixtures.filter(([,supported])=>supported).map(([file])=>file))
+})
+
+test('photo queue preserves picker order and normalizes labels and types lazily',()=>{
+  const first=photo('first.JPG','')
+  const ignored=photo('notes.txt','text/plain')
+  const second=photo('second.png','image/png')
+  const third=photo('third.webp','application/octet-stream')
+  const selection=createPhotoSelection([first,ignored,second,third])
+
+  assert.deepEqual(selection.items.map(item=>item.file),[first,second,third])
+  assert.deepEqual(selection.items.map(({name,type,size})=>({name,type,size})),[
+    {name:'first.JPG',type:'image/jpeg',size:12},
+    {name:'second.png',type:'image/png',size:12},
+    {name:'third.webp',type:'image/webp',size:12}
+  ])
+  assert.equal(selection.index,0)
+  assert.equal(photoCounter(selection),'1 / 3')
+  assert.equal('url' in selection.items[0],false)
+})
+
+test('photo queue navigation is clamped and exposes an honest counter',()=>{
+  const selection=createPhotoSelection([
+    photo('one.jpg','image/jpeg'),
+    photo('two.jpg','image/jpeg'),
+    photo('three.jpg','image/jpeg')
+  ])
+  assert.equal(clampPhotoIndex(-8,3),0)
+  assert.equal(clampPhotoIndex(99,3),2)
+  assert.equal(clampPhotoIndex(Infinity,3),2)
+  assert.equal(selectPhotoIndex(selection,1.9),1)
+  assert.equal(photoCounter(selection),'2 / 3')
+  assert.equal(movePhotoIndex(selection,10),2)
+  assert.equal(photoCounter(selection),'3 / 3')
+  assert.equal(movePhotoIndex(selection,-20),0)
+  assert.equal(photoCounter(selection),'1 / 3')
+
+  const empty=createPhotoSelection([])
+  assert.equal(selectPhotoIndex(empty,5),0)
+  assert.equal(movePhotoIndex(empty,-1),0)
+  assert.equal(photoCounter(empty),'0 / 0')
+})
+
+test('photo object URLs are created lazily, reused and revoked exactly once',()=>{
+  const created=[]
+  const revoked=[]
+  const lease=createObjectUrlLease({
+    createObjectURL(file){const url=`blob:test-${created.length+1}`;created.push({file,url});return url},
+    revokeObjectURL(url){revoked.push(url)}
+  })
+  const first=photo('one.jpg','image/jpeg')
+  const second=photo('two.png','image/png')
+
+  assert.deepEqual(created,[])
+  assert.equal(lease.replace(first),'blob:test-1')
+  assert.equal(lease.replace(first),'blob:test-1')
+  assert.equal(created.length,1)
+  assert.deepEqual(revoked,[])
+  assert.equal(lease.replace(second),'blob:test-2')
+  assert.deepEqual(revoked,['blob:test-1'])
+  lease.clear()
+  lease.clear()
+  assert.deepEqual(revoked,['blob:test-1','blob:test-2'])
+})
+
+test('photo selection stays DOM-free and never starts analysis',()=>{
+  const source=fs.readFileSync(path.join(workerRoot,'public/photo-selection.js'),'utf8')
+  assert.doesNotMatch(source,/\bdocument\b|querySelector|addEventListener|\bfetch\s*\(|\/api\/moment-lens/)
+})
 
 test('Moment Lens uses the three exact single-image prompts',()=>{
   assert.deepEqual(MOMENT_LENS_PROMPTS,expectedPrompts)
@@ -259,6 +355,15 @@ test('a response reporting no relevant visible subject remains unclear',()=>{
   assert.equal(result.reason,'no_relevant_visible_fact')
 })
 
+test('a model response that says the image is too blurry remains unclear',()=>{
+  const raw='The image is blurry and cannot be described.'
+  const result=sanitizeMomentLensAnswer(raw)
+  assert.equal(result.status,'unclear')
+  assert.equal(result.answer,null)
+  assert.equal(result.raw_answer,raw)
+  assert.equal(result.reason,'model_unclear')
+})
+
 test('schema, JSON, prompt echoes and oversized responses never become visible',()=>{
   const fixtures=[
     'In the video, [ { "events": [ { "actor_ref": "subject_1", "action": "petting|lying_down|standing_up|sitting_down|jumping_off|jumping_on|playing"',
@@ -369,6 +474,7 @@ test('runtime identity inspection rejects exact weights without the VisionPsy pr
 test('Studio exposes only the Moment Lens analysis route',()=>{
   const server=fs.readFileSync(path.join(workerRoot,'studio.mjs'),'utf8')
   assert.match(server,/\/api\/moment-lens/)
+  assert.match(server,/photo-selection\.js/)
   assert.doesNotMatch(server,/\/api\/(?:detect|pose|interpret|session-summary|finalize-session|deep|youtube)/)
   assert.doesNotMatch(server,/contact[_ -]?sheet|detectorHealth|startDetector|NarrativeEngine|analyseDeepWindow/i)
 })
@@ -376,6 +482,9 @@ test('Studio exposes only the Moment Lens analysis route',()=>{
 test('browser controller makes one streamed comparison request and contains no temporal pipeline',()=>{
   const app=fs.readFileSync(path.join(workerRoot,'public/app.js'),'utf8')
   assert.equal((app.match(/fetch\('\/api\/moment-lens'/g)||[]).length,1)
+  assert.match(app,/currentSource\?\.kind==='photo'/)
+  assert.match(app,/freezeContext\.drawImage\(source,/)
+  assert.match(app,/createPhotoSelection\(files\)/)
   assert.match(app,/getReader\(\)/)
   assert.match(app,/model-start/)
   assert.match(app,/model-result/)
@@ -390,8 +499,24 @@ test('public interface exposes two polished result cards and no Live or Deep mod
   assert.match(html,/Flash/)
   assert.match(html,/Full/)
   assert.match(html,/Compare this moment/)
-  assert.match(html,/Same frozen frame/)
+  assert.match(html,/Same selected image/)
   assert.doesNotMatch(html,/Live Studio|Deep Analysis|YouTube URL|data-studio-mode|sessionModal/)
+})
+
+test('public interface accepts one or many local photos without a multi-image API',()=>{
+  const html=fs.readFileSync(path.join(workerRoot,'public/index.html'),'utf8')
+  const app=fs.readFileSync(path.join(workerRoot,'public/app.js'),'utf8')
+  assert.match(html,/id="photoButton"/)
+  assert.match(html,/id="photoFiles"[^>]+type="file"[^>]+accept="image\/jpeg,image\/png,image\/webp"[^>]+multiple/)
+  for(const id of ['photoPreview','photoQueue','photoFilmstrip','previousPhoto','nextPhoto','photoCounter'])assert.match(html,new RegExp(`id=["']${id}["']`),id)
+  assert.equal((app.match(/fetch\('\/api\/moment-lens'/g)||[]).length,1)
+  assert.doesNotMatch(app,/Promise\.all\([^)]*photo|for\s*\([^)]*photo[^)]*\)\s*\{[^}]*fetch\('/s)
+  assert.doesNotMatch(app,/\/api\/moment-lens\/(?:batch|photos|image)/)
+  assert.match(app,/analyseButton\.disabled=busy\|\|sourceLoading\|\|!sourceReady/)
+  assert.match(app,/if\(busy\|\|sourceLoading\|\|!modelsReady/)
+  assert.match(app,/const thumbnailObjectUrls=new Set\(\)/)
+  assert.match(app,/clearThumbnailObjectUrls\(\)/)
+  assert.doesNotMatch(app,/if\(currentSource\)showSource\(/)
 })
 
 test('Moment Lens has no runtime package dependencies',()=>{

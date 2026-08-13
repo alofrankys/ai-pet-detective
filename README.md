@@ -2,14 +2,16 @@
 
 A small local demo built around VisionPsy-Nano's intended single-image use.
 
-Point the camera at a scene or open a video, choose one clear moment and press
-**Compare this moment**. The Studio freezes exactly that frame, then sends the
+Point the camera at a scene, open a video, or choose one or more local photos.
+Select one clear image and press **Compare this moment**. The Studio freezes or
+converts exactly that selected image, then sends the
 same JPEG and the same short English prompt once to each of two local models:
 VisionPsy-Nano-460M-Flash and VisionPsy-Nano-460M Full.
 
 ## What it does
 
-- camera or local video as the main visual area;
+- camera, local video or local photo as the main visual area;
+- a navigable local queue when multiple photos are selected;
 - one manually selected frame per request;
 - three focused prompts: **Describe**, **Objects** and **Spatial**;
 - two short factual answers with model names and separately measured inference
@@ -21,7 +23,9 @@ VisionPsy-Nano-460M-Flash and VisionPsy-Nano-460M Full.
 
 The comparison changes the VisionPsy variant, not the main-weight
 quantization: both main models use the official `Q4_K_M-imat` weights. Moment
-Lens deliberately does not perform video understanding, tracking,
+Only the currently selected photo is analysed; selecting multiple photos never
+starts an automatic batch or sends neighbouring images. Moment Lens deliberately
+does not perform video understanding, tracking,
 action recognition, timeline construction or narrative generation. It never
 sends multiple images, contact sheets, neighbouring frames, detector data,
 timestamps or schemas to VisionPsy.
@@ -85,7 +89,7 @@ measurement.
 
 ## Accurate public claim
 
-> Two VisionPsy-Nano variants analyse the same camera frame locally with the
+> Two VisionPsy-Nano variants analyse the same selected image locally with the
 > same prompt and Q4 model-weight quantization—no cloud upload.
 
 Do not describe this demo as video understanding or temporal reasoning.

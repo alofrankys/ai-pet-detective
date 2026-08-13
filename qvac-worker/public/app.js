@@ -1,10 +1,30 @@
+import {
+  createObjectUrlLease,
+  createPhotoSelection,
+  movePhotoIndex,
+  photoCounter,
+  selectPhotoIndex
+} from './photo-selection.js'
+
 const video=document.getElementById('camera')
+const photoPreview=document.getElementById('photoPreview')
 const freezeCanvas=document.getElementById('momentFreeze')
 const freezeContext=freezeCanvas.getContext('2d')
 const emptyState=document.getElementById('emptyState')
 const startButton=document.getElementById('startButton')
 const fileButton=document.getElementById('fileButton')
 const videoFile=document.getElementById('videoFile')
+const photoButton=document.getElementById('photoButton')
+const photoFiles=document.getElementById('photoFiles')
+const sourceToolbar=document.getElementById('sourceToolbar')
+const switchCameraButton=document.getElementById('switchCameraButton')
+const switchVideoButton=document.getElementById('switchVideoButton')
+const switchPhotoButton=document.getElementById('switchPhotoButton')
+const photoQueue=document.getElementById('photoQueue')
+const photoFilmstrip=document.getElementById('photoFilmstrip')
+const previousPhoto=document.getElementById('previousPhoto')
+const nextPhoto=document.getElementById('nextPhoto')
+const photoCounterOutput=document.getElementById('photoCounter')
 const sourceBadge=document.getElementById('sourceBadge')
 const languageSelect=document.getElementById('languageSelect')
 const statusDot=document.getElementById('statusDot')
@@ -35,23 +55,25 @@ const modelElements=Object.freeze({
 const copy={
   en:{
     language:'UI language',engineStarting:'Starting Q4 models',engineReady:'2 Q4 models · local',engineUnavailable:'VisionPsy models unavailable',
-    heroTitle:'One frame. Two visual paths.',heroCopy:'Choose one exact moment and compare both local VisionPsy models.',startCamera:'Start camera',openVideo:'Open video',
-    momentIntro:'Freeze one clear frame. Flash and Full inspect the exact same image with the exact same prompt.',momentGuide:'Aim the camera or pause your video on the moment you want to inspect.',momentGuideReady:'Choose the clearest moment, then compare exactly this frame.',
-    momentDescribe:'Describe',momentObjects:'Objects',momentSpatial:'Spatial',momentAnalyse:'Compare this moment',momentLooking:'Flash is looking…',momentOneFrame:'Full follows on the same frozen frame',
-    momentSees:'VISIONPSY SEES',momentLocal:'Local · offline',momentTryAgain:'Compare another moment',momentUnclear:'Unclear frame — try another moment',momentError:'This model could not analyse the frame.',
+    heroTitle:'One image. Two visual paths.',heroCopy:'Use the camera, open a video, or choose one or more photos.',startCamera:'Start camera',openVideo:'Open video',openPhotos:'Open photos',
+    momentIntro:'Select one clear image. Flash and Full inspect the exact same JPEG with the exact same prompt.',momentGuide:'Aim the camera, pause a video, or select a photo to inspect.',momentGuideReady:'Choose the clearest image, then compare exactly this moment.',photoGuideReady:'Only this selected photo will be compared. Other photos stay local in the queue.',
+    momentDescribe:'Describe',momentObjects:'Objects',momentSpatial:'Spatial',momentAnalyse:'Compare this moment',momentLooking:'Flash is looking…',momentOneFrame:'Full follows on the same selected image',
+    momentSees:'VISIONPSY SEES',momentLocal:'Local · offline',momentTryAgain:'Compare another moment',momentUnclear:'Unclear image — try another moment',momentError:'This model could not analyse the image.',
     speedPath:'FLASH VISUAL PATH',qualityPath:'FULL VISUAL PATH',modelWaiting:'Waiting',modelQueued:'Queued',modelRunning:'Analysing',modelReady:'Ready',modelUnclear:'Unclear',modelError:'Unavailable',
-    flashLooking:'Flash is looking…',qualityLooking:'Full is looking…',cameraSource:'Camera',fileSource:'Uploaded video',cameraError:'Camera unavailable',videoError:'This video cannot be opened in the browser.',
-    privacyNote:'Same frozen frame · Same prompt · Q4_K_M weights · 100% local.'
+    flashLooking:'Flash is looking…',qualityLooking:'Full is looking…',cameraSource:'Camera',fileSource:'Uploaded video',photoSource:'Photo',cameraError:'Camera unavailable',videoError:'This video cannot be opened in the browser.',photoError:'These photos cannot be opened. Choose JPEG, PNG, or WebP files.',
+    changeSource:'Change source',stageLabel:'Camera, video, or selected photo',selectedPhotos:'Selected photos',photoList:'Photos',momentPromptLabel:'Moment Lens prompt',cameraShort:'Camera',videoShort:'Video',photosShort:'Photos',previousPhoto:'Previous photo',nextPhoto:'Next photo',photoLabel:'Photo',
+    privacyNote:'Same selected image · Same prompt · Q4_K_M weights · 100% local.'
   },
   it:{
     language:'Lingua UI',engineStarting:'Avvio modelli Q4',engineReady:'2 modelli Q4 · locali',engineUnavailable:'Modelli VisionPsy non disponibili',
-    heroTitle:'Un fotogramma. Due percorsi visivi.',heroCopy:'Scegli un momento esatto e confronta entrambi i modelli VisionPsy locali.',startCamera:'Avvia fotocamera',openVideo:'Apri video',
-    momentIntro:'Congela un fotogramma chiaro. Flash e Full osservano esattamente la stessa immagine con lo stesso prompt.',momentGuide:'Inquadra con la fotocamera o metti in pausa il video nel momento da osservare.',momentGuideReady:'Scegli il momento più chiaro, poi confronta esattamente questo fotogramma.',
-    momentDescribe:'Descrivi',momentObjects:'Oggetti',momentSpatial:'Spaziale',momentAnalyse:'Confronta questo momento',momentLooking:'Flash sta osservando…',momentOneFrame:'Full seguirà sullo stesso fotogramma',
-    momentSees:'VISIONPSY VEDE',momentLocal:'Locale · offline',momentTryAgain:'Confronta un altro momento',momentUnclear:'Fotogramma poco chiaro — prova un altro momento',momentError:'Questo modello non ha potuto analizzare il fotogramma.',
+    heroTitle:'Un’immagine. Due percorsi visivi.',heroCopy:'Usa la fotocamera, apri un video oppure scegli una o più foto.',startCamera:'Avvia fotocamera',openVideo:'Apri video',openPhotos:'Apri foto',
+    momentIntro:'Seleziona un’immagine chiara. Flash e Full osservano lo stesso JPEG con lo stesso prompt.',momentGuide:'Inquadra, metti in pausa un video oppure seleziona una foto.',momentGuideReady:'Scegli l’immagine più chiara, poi confronta esattamente questo momento.',photoGuideReady:'Verrà confrontata soltanto questa foto. Le altre restano locali nella coda.',
+    momentDescribe:'Descrivi',momentObjects:'Oggetti',momentSpatial:'Spaziale',momentAnalyse:'Confronta questo momento',momentLooking:'Flash sta osservando…',momentOneFrame:'Full seguirà sulla stessa immagine selezionata',
+    momentSees:'VISIONPSY VEDE',momentLocal:'Locale · offline',momentTryAgain:'Confronta un altro momento',momentUnclear:'Immagine poco chiara — prova un altro momento',momentError:'Questo modello non ha potuto analizzare l’immagine.',
     speedPath:'PERCORSO VISIVO FLASH',qualityPath:'PERCORSO VISIVO FULL',modelWaiting:'In attesa',modelQueued:'In coda',modelRunning:'Analisi',modelReady:'Pronto',modelUnclear:'Poco chiaro',modelError:'Non disponibile',
-    flashLooking:'Flash sta osservando…',qualityLooking:'Full sta osservando…',cameraSource:'Fotocamera',fileSource:'Video caricato',cameraError:'Fotocamera non disponibile',videoError:'Questo video non può essere aperto nel browser.',
-    privacyNote:'Stesso fotogramma · Stesso prompt · Pesi Q4_K_M · 100% locale.'
+    flashLooking:'Flash sta osservando…',qualityLooking:'Full sta osservando…',cameraSource:'Fotocamera',fileSource:'Video caricato',photoSource:'Foto',cameraError:'Fotocamera non disponibile',videoError:'Questo video non può essere aperto nel browser.',photoError:'Queste foto non possono essere aperte. Scegli file JPEG, PNG o WebP.',
+    changeSource:'Cambia sorgente',stageLabel:'Fotocamera, video o foto selezionata',selectedPhotos:'Foto selezionate',photoList:'Foto',momentPromptLabel:'Prompt di Moment Lens',cameraShort:'Fotocamera',videoShort:'Video',photosShort:'Foto',previousPhoto:'Foto precedente',nextPhoto:'Foto successiva',photoLabel:'Foto',
+    privacyNote:'Stessa immagine selezionata · Stesso prompt · Pesi Q4_K_M · 100% locale.'
   }
 }
 
@@ -59,6 +81,10 @@ let language='en'
 let preset='describe'
 let currentSource=null
 let objectUrl=null
+let photoSelection=createPhotoSelection([])
+let photoDecodeToken=0
+const photoObjectUrl=createObjectUrlLease()
+const thumbnailObjectUrls=new Set()
 let sourceReady=false
 let sourceLoading=false
 let modelsReady=false
@@ -100,19 +126,32 @@ function setControlsDisabled(){
   const sourceLocked=busy||sourceLoading
   startButton.disabled=sourceLocked
   fileButton.disabled=sourceLocked
+  photoButton.disabled=sourceLocked
+  switchCameraButton.disabled=sourceLocked
+  switchVideoButton.disabled=sourceLocked
+  switchPhotoButton.disabled=sourceLocked
+  photoFilmstrip.querySelectorAll('button').forEach(button=>{button.disabled=sourceLocked})
+  previousPhoto.disabled=sourceLocked||photoSelection.index<=0
+  nextPhoto.disabled=sourceLocked||photoSelection.index>=photoSelection.items.length-1
   presetButtons.forEach(button=>button.disabled=busy)
-  analyseButton.disabled=busy||!sourceReady||!modelsReady
+  analyseButton.disabled=busy||sourceLoading||!sourceReady||!modelsReady
+}
+
+function renderSourcePresentation(){
+  if(!currentSource)return
+  const prefix=currentSource.kind==='camera'?t('cameraSource'):currentSource.kind==='video'?t('fileSource'):t('photoSource')
+  sourceBadge.textContent=currentSource.title?`${prefix} · ${currentSource.title}`:prefix
+  sourceBadge.hidden=false
+  momentGuide.textContent=t(currentSource.kind==='photo'?'photoGuideReady':'momentGuideReady')
+  momentGuide.classList.add('ready')
 }
 
 function showSource(kind,title=''){
   currentSource={kind,title:String(title||'').trim()}
-  const prefix=kind==='camera'?t('cameraSource'):t('fileSource')
-  sourceBadge.textContent=currentSource.title?`${prefix} · ${currentSource.title}`:prefix
-  sourceBadge.hidden=false
+  sourceToolbar.hidden=false
   sourceReady=true
   emptyState.hidden=true
-  momentGuide.textContent=t('momentGuideReady')
-  momentGuide.classList.add('ready')
+  renderSourcePresentation()
   setControlsDisabled()
 }
 
@@ -160,6 +199,33 @@ function resetComparison({hideFreeze=true}={}){
   if(hideFreeze)freezeCanvas.classList.remove('visible')
 }
 
+function clearPhotoSelection(){
+  photoDecodeToken++
+  photoObjectUrl.clear()
+  clearThumbnailObjectUrls()
+  photoSelection=createPhotoSelection([])
+  photoPreview.removeAttribute('src')
+  photoPreview.alt=''
+  photoPreview.hidden=true
+  photoQueue.hidden=true
+  photoFilmstrip.replaceChildren()
+  photoCounterOutput.textContent=''
+}
+
+function clearThumbnailObjectUrls(){
+  for(const url of thumbnailObjectUrls)URL.revokeObjectURL(url)
+  thumbnailObjectUrls.clear()
+}
+
+function clearVideoSource(){
+  if(video.srcObject){video.srcObject.getTracks().forEach(track=>track.stop());video.srcObject=null}
+  if(objectUrl){URL.revokeObjectURL(objectUrl);objectUrl=null}
+  video.pause()
+  video.controls=false
+  video.removeAttribute('src')
+  video.load()
+}
+
 function prepareComparison(){
   modelViews.flash={phase:'queued',result:null}
   modelViews.quality={phase:'queued',result:null}
@@ -178,15 +244,12 @@ function stopCurrentSource(){
   busy=false
   sourceLoading=false
   resumeAfterTry=false
-  if(video.srcObject){video.srcObject.getTracks().forEach(track=>track.stop());video.srcObject=null}
-  if(objectUrl){URL.revokeObjectURL(objectUrl);objectUrl=null}
-  video.pause()
-  video.controls=false
-  video.removeAttribute('src')
-  video.load()
+  clearVideoSource()
+  clearPhotoSelection()
   currentSource=null
   sourceReady=false
   sourceBadge.hidden=true
+  sourceToolbar.hidden=true
   emptyState.hidden=false
   momentGuide.textContent=t('momentGuide')
   momentGuide.classList.remove('ready')
@@ -199,6 +262,7 @@ async function startCamera(){
   sourceLoading=true
   setControlsDisabled()
   try{
+    video.hidden=false
     const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},facingMode:{ideal:'environment'}},audio:false})
     video.srcObject=stream
     video.controls=false
@@ -218,6 +282,7 @@ async function openVideo(file){
   sourceLoading=true
   setControlsDisabled()
   try{
+    video.hidden=false
     objectUrl=URL.createObjectURL(file)
     video.src=objectUrl
     video.loop=false
@@ -226,7 +291,7 @@ async function openVideo(file){
     video.load()
     if(video.readyState<1)await waitForVideoEvent('loadedmetadata')
     if(video.readyState<2)await waitForVideoEvent('loadeddata')
-    showSource('file',file.name)
+    showSource('video',file.name)
     video.play().catch(()=>{})
   }catch{
     stopCurrentSource()
@@ -237,11 +302,118 @@ async function openVideo(file){
   }
 }
 
+function renderPhotoFilmstrip(){
+  const selected=photoSelection.index
+  clearThumbnailObjectUrls()
+  photoFilmstrip.replaceChildren(...photoSelection.items.map((item,index)=>{
+    const button=document.createElement('button')
+    button.type='button'
+    button.className='photo-thumbnail'
+    button.dataset.photoIndex=String(index)
+    button.setAttribute('role','option')
+    button.setAttribute('aria-selected',String(index===selected))
+    button.setAttribute('aria-label',`${t('photoLabel')} ${index+1}: ${item.name}`)
+    button.tabIndex=index===selected?0:-1
+    const thumbnail=document.createElement('img')
+    thumbnail.alt=''
+    if(index===selected)thumbnail.src=photoPreview.currentSrc||photoPreview.src
+    else{
+      const thumbnailUrl=URL.createObjectURL(item.file)
+      thumbnailObjectUrls.add(thumbnailUrl)
+      let released=false
+      const release=()=>{if(!released){released=true;thumbnailObjectUrls.delete(thumbnailUrl);URL.revokeObjectURL(thumbnailUrl)}}
+      thumbnail.addEventListener('load',release,{once:true})
+      thumbnail.addEventListener('error',release,{once:true})
+      thumbnail.src=thumbnailUrl
+    }
+    button.append(thumbnail)
+    return button
+  }))
+  photoCounterOutput.textContent=photoCounter(photoSelection)
+  photoQueue.hidden=photoSelection.items.length<2
+  setControlsDisabled()
+}
+
+async function showSelectedPhoto({focusThumbnail=false}={}){
+  const item=photoSelection.items[photoSelection.index]
+  if(!item)return false
+  const token=++photoDecodeToken
+  currentSource=null
+  sourceReady=false
+  sourceBadge.hidden=true
+  momentGuide.textContent=t('momentGuide')
+  momentGuide.classList.remove('ready')
+  resetComparison()
+  freezeCanvas.classList.remove('visible')
+  const url=photoObjectUrl.replace(item.file)
+  photoPreview.src=url
+  photoPreview.alt=item.name
+  photoPreview.hidden=false
+  video.hidden=true
+  try{
+    if(typeof photoPreview.decode==='function')await photoPreview.decode()
+    else if(!photoPreview.complete)await new Promise((resolve,reject)=>{photoPreview.addEventListener('load',resolve,{once:true});photoPreview.addEventListener('error',reject,{once:true})})
+    if(token!==photoDecodeToken)return false
+    if(!photoPreview.naturalWidth||!photoPreview.naturalHeight)throw new Error('invalid photo')
+    showSource('photo',`${photoCounter(photoSelection)} · ${item.name}`)
+    renderPhotoFilmstrip()
+    if(focusThumbnail)photoFilmstrip.querySelector(`[data-photo-index="${photoSelection.index}"]`)?.focus()
+    return true
+  }catch{
+    if(token===photoDecodeToken){
+      const failedIndex=photoSelection.index
+      photoSelection.items.splice(failedIndex,1)
+      selectPhotoIndex(photoSelection,failedIndex)
+      photoObjectUrl.clear()
+      photoPreview.removeAttribute('src')
+      photoPreview.alt=''
+      photoPreview.hidden=true
+      if(photoSelection.items.length)return showSelectedPhoto({focusThumbnail})
+      currentSource=null
+      sourceReady=false
+      sourceBadge.hidden=true
+      sourceToolbar.hidden=true
+      emptyState.hidden=false
+      photoQueue.hidden=true
+      photoFilmstrip.replaceChildren()
+      momentGuide.textContent=t('photoError')
+      momentGuide.classList.remove('ready')
+      setControlsDisabled()
+    }
+    return false
+  }
+}
+
+async function openPhotos(files){
+  const selection=createPhotoSelection(files)
+  stopCurrentSource()
+  if(!selection.items.length){momentGuide.textContent=t('photoError');return}
+  photoSelection=selection
+  sourceLoading=true
+  setControlsDisabled()
+  await showSelectedPhoto()
+  sourceLoading=false
+  setControlsDisabled()
+}
+
+async function choosePhoto(index,{focusThumbnail=false}={}){
+  if(busy||sourceLoading||!photoSelection.items.length)return
+  selectPhotoIndex(photoSelection,index)
+  sourceLoading=true
+  setControlsDisabled()
+  await showSelectedPhoto({focusThumbnail})
+  sourceLoading=false
+  setControlsDisabled()
+}
+
 function frozenJpeg(){
-  const dimensions=fitDimensions(video.videoWidth,video.videoHeight)
+  const source=currentSource?.kind==='photo'?photoPreview:video
+  const width=currentSource?.kind==='photo'?photoPreview.naturalWidth:video.videoWidth
+  const height=currentSource?.kind==='photo'?photoPreview.naturalHeight:video.videoHeight
+  const dimensions=fitDimensions(width,height)
   freezeCanvas.width=dimensions.width
   freezeCanvas.height=dimensions.height
-  freezeContext.drawImage(video,0,0,dimensions.width,dimensions.height)
+  freezeContext.drawImage(source,0,0,dimensions.width,dimensions.height)
   return new Promise(resolve=>freezeCanvas.toBlob(resolve,'image/jpeg',.9))
 }
 
@@ -296,12 +468,14 @@ function markIncompleteModelsAsError(){
 }
 
 async function analyseCurrentMoment(){
-  if(busy||!modelsReady||!sourceReady||video.readyState<2||!video.videoWidth||!video.videoHeight)return
+  const photoReady=currentSource?.kind==='photo'&&photoPreview.complete&&photoPreview.naturalWidth>0
+  const videoReady=currentSource?.kind!=='photo'&&video.readyState>=2&&video.videoWidth>0&&video.videoHeight>0
+  if(busy||sourceLoading||!modelsReady||!sourceReady||(!photoReady&&!videoReady))return
   const token=++requestToken
   busy=true
   activeController=new AbortController()
-  resumeAfterTry=currentSource?.kind==='file'&&!video.paused
-  if(currentSource?.kind==='file')video.pause()
+  resumeAfterTry=currentSource?.kind==='video'&&!video.paused
+  if(currentSource?.kind==='video')video.pause()
   analyseButton.hidden=true
   prepareComparison()
   setControlsDisabled()
@@ -336,14 +510,15 @@ function tryAnotherMoment(){
   resumeAfterTry=false
   resetComparison()
   setControlsDisabled()
-  if(shouldResume&&currentSource?.kind==='file')video.play().catch(()=>{})
+  if(shouldResume&&currentSource?.kind==='video')video.play().catch(()=>{})
 }
 
 function applyLanguage(){
   language=languageSelect.value==='it'?'it':'en'
   document.documentElement.lang=language
   document.querySelectorAll('[data-i18n]').forEach(element=>{element.textContent=t(element.dataset.i18n)})
-  if(currentSource)showSource(currentSource.kind,currentSource.title)
+  document.querySelectorAll('[data-i18n-aria]').forEach(element=>{element.setAttribute('aria-label',t(element.dataset.i18nAria))})
+  if(currentSource&&sourceReady&&!sourceLoading)renderSourcePresentation()
   else if(!sourceLoading){momentGuide.textContent=t('momentGuide');momentGuide.classList.remove('ready')}
   if(busy)analysingTitle.textContent=modelViews.quality.phase==='running'?t('qualityLooking'):t('flashLooking')
   renderModel('flash')
@@ -378,6 +553,21 @@ presetButtons.forEach(button=>button.addEventListener('click',()=>{
 startButton.addEventListener('click',startCamera)
 fileButton.addEventListener('click',()=>{videoFile.value='';videoFile.click()})
 videoFile.addEventListener('change',()=>openVideo(videoFile.files[0]))
+photoButton.addEventListener('click',()=>{photoFiles.value='';photoFiles.click()})
+photoFiles.addEventListener('change',()=>openPhotos(photoFiles.files))
+switchCameraButton.addEventListener('click',startCamera)
+switchVideoButton.addEventListener('click',()=>{videoFile.value='';videoFile.click()})
+switchPhotoButton.addEventListener('click',()=>{photoFiles.value='';photoFiles.click()})
+previousPhoto.addEventListener('click',()=>{movePhotoIndex(photoSelection,-1);choosePhoto(photoSelection.index,{focusThumbnail:true})})
+nextPhoto.addEventListener('click',()=>{movePhotoIndex(photoSelection,1);choosePhoto(photoSelection.index,{focusThumbnail:true})})
+photoFilmstrip.addEventListener('click',event=>{
+  const button=event.target.closest('[data-photo-index]')
+  if(button)choosePhoto(Number(button.dataset.photoIndex),{focusThumbnail:true})
+})
+photoFilmstrip.addEventListener('keydown',event=>{
+  const index=event.key==='Home'?0:event.key==='End'?photoSelection.items.length-1:event.key==='ArrowLeft'?photoSelection.index-1:event.key==='ArrowRight'?photoSelection.index+1:null
+  if(index!==null){event.preventDefault();choosePhoto(index,{focusThumbnail:true})}
+})
 analyseButton.addEventListener('click',analyseCurrentMoment)
 tryAgainButton.addEventListener('click',tryAnotherMoment)
 languageSelect.addEventListener('change',applyLanguage)

@@ -133,7 +133,7 @@ export function sanitizeMomentLensAnswer(value,preset='describe'){
   if(/^UNCLEAR[.!]?$/i.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'model_unclear'}
   if(!compact)return {status:'unclear',answer:null,raw_answer,reason:'empty_response'}
   if(compact.length>320||compact.split(/\s+/).length>45)return {status:'unclear',answer:null,raw_answer,reason:'response_too_long'}
-  if(/\b(?:unclear|not clear|cannot determine|can't determine|unable to determine)\b/i.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'model_unclear'}
+  if(/\b(?:unclear|not clear|cannot determine|can't determine|unable to determine|cannot be described|can't be described|unable to describe|too blurry|image is blurry)\b/i.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'model_unclear'}
   if(/\b(?:no (?:clearly )?(?:visible )?(?:dog|person|object|furniture)|(?:dog|person|object) (?:is|are) not visible|does not (?:show|contain) (?:a |any )?(?:dog|person|object))\b/i.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'no_relevant_visible_fact'}
   if(structuredOutput.test(compact)||templateLanguage.test(compact)||pipeSeparatedTokens.test(compact)||momentPromptEcho.test(compact)||/^(?:[-*]\s+|(?:answer|response|description)\s*:)/i.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'echo_or_template'}
   if(momentUnsupportedInference.test(compact))return {status:'unclear',answer:null,raw_answer,reason:'unsupported_inference'}
@@ -258,7 +258,7 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='GET'){
       const requested=url.pathname==='/'?'index.html':url.pathname.slice(1)
-      if(!['index.html','styles.css','app.js'].includes(requested))return json(res,404,{error:'not found'})
+      if(!['index.html','styles.css','app.js','photo-selection.js'].includes(requested))return json(res,404,{error:'not found'})
       const file=path.join(publicDir,requested)
       res.writeHead(200,{'content-type':types[path.extname(file)]||'application/octet-stream','x-studio-build':'moment-lens-compare-q4','cache-control':'no-store'})
       return fs.createReadStream(file).pipe(res)
