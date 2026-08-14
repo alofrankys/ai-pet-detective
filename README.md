@@ -42,6 +42,10 @@ that reaches 256 is still disclosed as **Max reached** rather than hidden or
 rewritten. These 71-image figures are directional demo diagnostics, not an
 official model benchmark.
 
+The separate long-ceiling diagnostic and the rationale for keeping `1024` out
+of the public Studio are recorded in
+[`docs/MOMENT_LENS_TOKEN_CEILING.md`](docs/MOMENT_LENS_TOKEN_CEILING.md).
+
 The comparison changes the VisionPsy variant, not the main-weight
 quantization: both main models use the official `Q4_K_M-imat` weights. Only the
 currently selected photo is analysed; selecting multiple photos never

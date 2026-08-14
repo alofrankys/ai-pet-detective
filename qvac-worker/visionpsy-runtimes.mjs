@@ -147,6 +147,7 @@ export function createVisionPsyRuntimePool({
   modelRoots,
   runtimeBin=process.env.VISIONPSY_RUNTIME_BIN||path.join(siblingRoot,'vendor/llama-mtmd-metal/bin/llama-server'),
   startupTimeoutMs=120_000,
+  completionTimeoutMs=Number(process.env.VISIONPSY_COMPLETION_TIMEOUT_MS||90_000),
   logDir=path.join(os.tmpdir(),'visionpsy-moment-lens')
 }={}){
   const children=new Map()
@@ -261,7 +262,7 @@ export function createVisionPsyRuntimePool({
       method:'POST',
       headers:{'content-type':'application/json'},
       body:JSON.stringify(request),
-      signal:AbortSignal.timeout(90_000)
+      signal:AbortSignal.timeout(Number.isFinite(completionTimeoutMs)&&completionTimeoutMs>0?completionTimeoutMs:90_000)
     })
     const body=await response.text()
     if(!response.ok)throw new Error(`${spec.shortName} VisionPsy HTTP ${response.status}: ${body.slice(0,500)}`)

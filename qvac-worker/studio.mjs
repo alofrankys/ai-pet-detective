@@ -61,7 +61,11 @@ export const MOMENT_LENS_MODELS=Object.freeze(VISIONPSY_MODELS.map(model=>Object
 // Keep deterministic greedy generation for a fair A/B comparison. The initial
 // 128-token reference ceiling truncated 67/71 Flash and 38/71 Full responses on
 // the real-image set, so Moment Lens uses a shared 256-token safety ceiling.
-export const MOMENT_LENS_SAMPLING=Object.freeze({max_tokens:256,temperature:0})
+const configuredMaxTokens=Number.parseInt(process.env.MOMENT_LENS_MAX_TOKENS||'256',10)
+export const MOMENT_LENS_SAMPLING=Object.freeze({
+  max_tokens:Number.isInteger(configuredMaxTokens)&&configuredMaxTokens>=32&&configuredMaxTokens<=1024?configuredMaxTokens:256,
+  temperature:0
+})
 export const MOMENT_LENS_PROMPTS=Object.freeze({
   describe:`What is visible in this image? Give a detailed natural-language description of the main subject, setting, posture, visible objects, colors, contact, and spatial relationships, including only details that can be seen directly. If the image is too unclear to describe reliably, answer UNCLEAR.`,
   objects:`What objects are visible in this image, and how do they relate to the main subject and to one another? Give a detailed natural-language description of their visible attributes, positions, and contact. Include only details that can be seen directly. If no reliable object relationship is visible, answer UNCLEAR.`,

@@ -11,6 +11,9 @@ if(!sourceArg||!outputArg){
 const sourceDir=path.resolve(sourceArg)
 const outputFile=path.resolve(outputArg)
 const endpoint=endpointArg||'http://127.0.0.1:8803/api/moment-lens'
+const statusEndpoint=new URL('/api/status',endpoint).href
+const diagnosticThresholds=[128,256,512]
+const requestTimeoutMs=Number(process.env.MOMENT_BENCHMARK_TIMEOUT_MS||240_000)
 const files=fs.readdirSync(sourceDir)
   .filter(file=>/\.jpe?g$/i.test(file))
   .sort((left,right)=>left.localeCompare(right,'en',{numeric:true}))
@@ -48,7 +51,17 @@ function summarize(items){
       length_stops:lengthStops.length,
       length_stop_rate:valid.length?Number((lengthStops.length/valid.length).toFixed(4)):null,
       output_tokens:metrics(valid.map(result=>result.output_tokens).filter(Number.isFinite)),
-      inference_ms:metrics(valid.map(result=>result.inference_ms).filter(Number.isFinite))
+      inference_ms:metrics(valid.map(result=>result.inference_ms).filter(Number.isFinite)),
+      simulated_thresholds:Object.fromEntries(diagnosticThresholds.map(threshold=>{
+        const diagnostics=valid.map(result=>result.threshold_diagnostics?.[threshold]).filter(Boolean)
+        const reached=diagnostics.filter(value=>value.would_reach_limit)
+        return [threshold,{
+          evaluated:diagnostics.length,
+          would_reach_limit:reached.length,
+          would_reach_limit_rate:diagnostics.length?Number((reached.length/diagnostics.length).toFixed(4)):null,
+          prefixes_ending_mid_sentence:reached.filter(value=>!value.ends_on_sentence_boundary).length
+        }]
+      }))
     }
   }
   return summary
@@ -73,7 +86,7 @@ async function analyse(jpeg){
     method:'POST',
     headers:{'content-type':'image/jpeg','x-moment-preset':'describe'},
     body:jpeg,
-    signal:AbortSignal.timeout(240_000)
+    signal:AbortSignal.timeout(Number.isFinite(requestTimeoutMs)&&requestTimeoutMs>0?requestTimeoutMs:240_000)
   })
   const body=await response.text()
   if(!response.ok)throw new Error(`HTTP ${response.status}: ${body.slice(0,300)}`)
@@ -84,16 +97,59 @@ async function analyse(jpeg){
   }
 }
 
+async function postJson(url,body){
+  const response=await fetch(url,{
+    method:'POST',
+    headers:{'content-type':'application/json'},
+    body:JSON.stringify(body),
+    signal:AbortSignal.timeout(10_000)
+  })
+  if(!response.ok)throw new Error(`${url} failed with HTTP ${response.status}`)
+  return response.json()
+}
+
+async function addThresholdDiagnostics(result,modelEndpoints){
+  const base=modelEndpoints[result.variant]
+  const answer=result.raw_answer||result.answer
+  if(!base||typeof answer!=='string'||!answer)return result
+  const tokenized=await postJson(`${base}/tokenize`,{content:answer})
+  const tokens=Array.isArray(tokenized.tokens)?tokenized.tokens:[]
+  const thresholdDiagnostics={}
+  for(const threshold of diagnosticThresholds){
+    const wouldReach=tokens.length>=threshold
+    let prefix=answer
+    if(wouldReach){
+      const detokenized=await postJson(`${base}/detokenize`,{tokens:tokens.slice(0,threshold)})
+      prefix=String(detokenized.content||'')
+    }
+    thresholdDiagnostics[threshold]={
+      would_reach_limit:wouldReach,
+      ends_on_sentence_boundary:/[.!?][\"')\]]?\s*$/.test(prefix),
+      prefix_character_length:prefix.length,
+      prefix_tail:prefix.slice(-120)
+    }
+  }
+  return {...result,tokenized_output_tokens:tokens.length,threshold_diagnostics:thresholdDiagnostics}
+}
+
 const prior=existingReport()
+const statusResponse=await fetch(statusEndpoint,{signal:AbortSignal.timeout(5_000)})
+if(!statusResponse.ok)throw new Error(`Studio status failed with HTTP ${statusResponse.status}`)
+const studioStatus=await statusResponse.json()
+const sampling=studioStatus.sampling
+if(!sampling||!Number.isInteger(sampling.max_tokens))throw new Error('Studio did not disclose its sampling configuration')
+const modelEndpoints=Object.fromEntries((studioStatus.models||[]).map(model=>[model.variant,model.endpoint]))
 const items=prior?.items||[]
-const completeNames=new Set(items.filter(item=>item.results?.length===2).map(item=>item.filename))
+const completeNames=new Set(items.filter(item=>
+  item.results?.length===2&&item.results.every(result=>result.status!=='error')
+).map(item=>item.filename))
 const report={
   version:1,
   dataset:path.basename(path.dirname(sourceDir)),
   source_directory:sourceDir,
   endpoint,
   preset:'describe',
-  sampling:{max_tokens:256,temperature:0},
+  sampling,
   preprocessing:{format:'JPEG',max_dimension:1600,quality:85},
   started_at:prior?.started_at||new Date().toISOString(),
   updated_at:new Date().toISOString(),
@@ -119,6 +175,7 @@ for(let index=0;index<files.length;index++){
   console.log(`[${index+1}/${files.length}] ${filename} analysing`)
   try{
     const result=await analyse(jpeg)
+    result.results=await Promise.all(result.results.map(value=>addThresholdDiagnostics(value,modelEndpoints)))
     Object.assign(item,result,{status:result.results.length===2?'complete':'incomplete'})
     const stops=result.results.map(value=>`${value.variant}:${value.finish_reason||value.status}`).join(' ')
     console.log(`[${index+1}/${files.length}] ${filename} ${stops}`)
