@@ -66,7 +66,10 @@
         <button class="moment-preset" data-moment-preset="objects" aria-pressed="false" data-i18n="momentObjects">Objects</button>
         <button class="moment-preset" data-moment-preset="spatial" aria-pressed="false" data-i18n="momentSpatial">Spatial</button>
       </div>
-      <button id="momentAnalyseButton" class="moment-analyse" disabled data-i18n="momentAnalyse">Compare this moment</button>
+      <div class="compare-actions">
+        <button id="momentAnalyseButton" class="moment-analyse" disabled data-i18n="momentAnalyse">Compare this moment</button>
+        <button id="batchCompareButton" class="batch-compare" hidden disabled data-i18n="batchCompare">Compare all photos</button>
+      </div>
       <div id="momentAnalysing" class="moment-analysing" hidden role="status" aria-live="polite">
         <span class="moment-spinner" aria-hidden="true"></span>
         <div><strong id="momentAnalysingTitle" data-i18n="momentLooking">Both models are looking…</strong><small data-i18n="momentOneFrame">Same image · same prompt · simultaneous local inference</small></div>
@@ -113,8 +116,33 @@
       <footer class="privacy-note"><span aria-hidden="true"></span><p data-i18n="privacyNote">Same selected image · Same prompt · Greedy · 256 max output tokens · Q4_K_M · 100% local.</p></footer>
     </aside>
   </main>
+  <section id="batchWorkspace" class="batch-workspace" hidden aria-labelledby="batchTitle">
+    <header class="batch-header">
+      <div>
+        <span class="eyebrow" data-i18n="batchEyebrow">LOCAL MULTI-PHOTO RUN</span>
+        <h2 id="batchTitle" data-i18n="batchTitle">Batch Compare</h2>
+        <p data-i18n="batchIntro">One photo at a time. Flash and Full run together; cumulative metrics update after every photo.</p>
+      </div>
+      <div class="batch-header-actions">
+        <button id="batchStopButton" class="batch-stop" hidden data-i18n="batchStop">Stop</button>
+        <button id="batchExportButton" disabled data-i18n="batchExport">Export results</button>
+        <button id="judgeImportButton" data-i18n="judgeImport">Import judge report</button>
+      </div>
+    </header>
+    <div class="batch-progress" role="status" aria-live="polite">
+      <div><strong id="batchProgressText">0 / 0</strong><span id="batchProgressStatus" data-i18n="batchReady">Ready to compare</span></div>
+      <div class="batch-progress-track" aria-hidden="true"><span id="batchProgressBar"></span></div>
+    </div>
+    <div id="batchMetrics" class="batch-metrics"></div>
+    <div id="judgeNotice" class="judge-notice">
+      <span data-i18n="judgePrecomputed">Judge results are imported from a precomputed blind report. No cloud judge runs inside Studio.</span>
+      <strong id="judgeImportState" data-i18n="judgeNotLoaded">No judge report loaded</strong>
+    </div>
+    <div id="batchResultsList" class="batch-results-list"></div>
+  </section>
   <input id="videoFile" type="file" accept="video/*" hidden>
-  <input id="photoFiles" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple hidden>
+  <input id="photoFiles" class="native-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple aria-hidden="true" tabindex="-1">
+  <input id="judgeReportFile" class="native-file-input" type="file" accept="application/json,.json" aria-hidden="true" tabindex="-1">
   <script type="module" src="./app.js"></script>
 </body>
 </html>

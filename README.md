@@ -13,6 +13,11 @@ VisionPsy-Nano-460M-Flash and VisionPsy-Nano-460M Full.
 - camera, local video or local JPEG, HEIC/HEIF, PNG or WebP photo as the main
   visual area;
 - a navigable local queue when multiple photos are selected;
+- an explicit **Compare all photos** run that processes the local queue in
+  order, one photo per request, while Flash and Full analyse that same photo
+  simultaneously;
+- progressive per-photo results, cumulative latency/token/stop KPIs,
+  stop/resume and a JSON export;
 - one manually selected frame per request;
 - three focused prompts: **Describe**, **Objects** and **Spatial**;
 - each model's full generated natural-language response as returned, with model
@@ -49,12 +54,31 @@ of the public Studio are recorded in
 
 The comparison changes the VisionPsy variant, not the main-weight
 quantization: both main models use the official `Q4_K_M-imat` weights. Only the
-currently selected photo is analysed; selecting multiple photos never
-starts an automatic batch or sends neighbouring images. Moment Lens deliberately
+currently selected photo is analysed unless the user explicitly presses
+**Compare all photos**. A batch still sends one photo at a time through the same
+single-image endpoint; it never combines photos, and simply advances to the next
+local file after both model results arrive. Selecting multiple photos alone never
+starts analysis or sends neighbouring images. Moment Lens deliberately
 does not perform video understanding, tracking,
 action recognition, timeline construction or narrative generation. It never
 sends multiple images, contact sheets, neighbouring frames, detector data,
 timestamps or schemas to VisionPsy.
+
+### Batch comparison and judge results
+
+The batch view is designed for a clear demo rather than an official benchmark.
+It updates after every photo with separate Flash and Full averages for inference
+time and output tokens, plus completion/error and 256-token-limit counts. The user can
+stop safely, resume from the interrupted photo, and export the accumulated JSON.
+
+Studio does not call a cloud judge. Its optional **Import judge report** control
+only reads a previously generated blind evaluation JSON and labels those scores
+as **precomputed**. Matching is by original filename and judge aggregates include
+only photos completed in the current run. The report can be imported before
+pressing **Compare all photos**, so matching per-photo scores and cumulative
+averages appear progressively as the local queue advances. This keeps the public
+live comparison local/offline and prevents a post-hoc evaluator from being
+presented as if it were running inside the app.
 
 ## Official model assets
 
@@ -108,7 +132,8 @@ cd qvac-worker
 npm test
 ```
 
-The tests enforce the one-image/one-call-per-model contract, identical input
+The tests enforce the one-image/one-call-per-model contract (including batch
+runs), identical input
 and greedy decode for both variants, simultaneous execution, the exact prompts,
 raw and unshortened answer preservation, `UNCLEAR` handling, output sanitation,
 output-token counts and inference-time measurement.

@@ -28,6 +28,18 @@ import {
   photoCounter,
   selectPhotoIndex
 } from '../public/photo-selection.js'
+import {
+  createBatchSession,
+  finishBatchSession,
+  markBatchItemRunning,
+  markBatchStarted,
+  nextPendingBatchIndex,
+  normalizePrecomputedJudgeReport,
+  recordBatchItem,
+  requeueBatchItem,
+  serializableBatchReport,
+  summarizeBatchSession
+} from '../public/batch-comparison.js'
 
 const here=path.dirname(fileURLToPath(import.meta.url))
 const workerRoot=path.resolve(here,'..')
@@ -126,6 +138,102 @@ test('photo object URLs are created lazily, reused and revoked exactly once',()=
 test('photo selection stays DOM-free and never starts analysis',()=>{
   const source=fs.readFileSync(path.join(workerRoot,'public/photo-selection.js'),'utf8')
   assert.doesNotMatch(source,/\bdocument\b|querySelector|addEventListener|\bfetch\s*\(|\/api\/moment-lens/)
+})
+
+test('batch session preserves photo order without retaining image bytes or starting analysis',()=>{
+  const selection=createPhotoSelection([
+    photo('one.jpg','image/jpeg',120),
+    photo('two.heic','image/heic',240)
+  ])
+  const session=createBatchSession(selection.items,{preset:'objects',maxTokens:256,now:()=> '2026-08-14T10:00:00.000Z'})
+  assert.deepEqual(session.items.map(item=>item.filename),['one.jpg','two.heic'])
+  assert.deepEqual(session.items.map(item=>item.status),['pending','pending'])
+  assert.equal(session.preset,'objects')
+  assert.deepEqual(session.sampling,{max_tokens:256,temperature:0})
+  assert.equal(session.judge_mode,'precomputed_import_only')
+  assert.equal('file' in session.items[0],false)
+  assert.equal('body' in session.items[0],false)
+  assert.equal('data' in session.items[0],false)
+})
+
+test('batch metrics update cumulatively and keep Flash and Full independent',()=>{
+  const session=createBatchSession([photo('one.jpg','image/jpeg'),photo('two.jpg','image/jpeg')])
+  markBatchStarted(session)
+  markBatchItemRunning(session,0)
+  recordBatchItem(session,0,{totalMs:420,jpegSha256:'abc',results:[
+    {variant:'flash',status:'clear',answer:'A dog.',inference_ms:100,output_tokens:20,finish_reason:'stop'},
+    {variant:'quality',status:'clear',answer:'A dog by a chair.',inference_ms:300,output_tokens:256,finish_reason:'length'}
+  ]})
+  let summary=summarizeBatchSession(session)
+  assert.deepEqual({processed:summary.processed,completed:summary.completed,pending:summary.pending},{processed:1,completed:1,pending:1})
+  assert.equal(summary.models.flash.average_inference_ms,100)
+  assert.equal(summary.models.flash.average_output_tokens,20)
+  assert.equal(summary.models.flash.max_reached,0)
+  assert.equal(summary.models.quality.average_inference_ms,300)
+  assert.equal(summary.models.quality.average_output_tokens,256)
+  assert.equal(summary.models.quality.max_reached,1)
+
+  markBatchItemRunning(session,1)
+  recordBatchItem(session,1,{results:[
+    {variant:'flash',status:'unclear',answer:null,inference_ms:200,output_tokens:1,finish_reason:'stop'},
+    {variant:'quality',status:'error',answer:null,inference_ms:null,output_tokens:null,finish_reason:null}
+  ],status:'error'})
+  finishBatchSession(session)
+  summary=summarizeBatchSession(session)
+  assert.deepEqual({processed:summary.processed,completed:summary.completed,failed:summary.failed},{processed:2,completed:1,failed:1})
+  assert.equal(summary.models.flash.average_inference_ms,150)
+  assert.equal(summary.models.flash.unclear,1)
+  assert.equal(summary.models.quality.errors,1)
+  assert.ok(session.completed_at)
+})
+
+test('a stopped batch requeues the interrupted photo and resumes from it',()=>{
+  const session=createBatchSession([photo('one.jpg','image/jpeg'),photo('two.jpg','image/jpeg')])
+  markBatchStarted(session)
+  markBatchItemRunning(session,0)
+  requeueBatchItem(session,0)
+  finishBatchSession(session,{stopped:true})
+  assert.equal(session.stopped,true)
+  assert.equal(nextPendingBatchIndex(session),0)
+  assert.equal(session.items[0].status,'pending')
+  markBatchStarted(session)
+  assert.equal(session.stopped,false)
+  assert.equal(nextPendingBatchIndex(session),0)
+})
+
+test('precomputed blind judge reports are imported safely and counted only for completed photos',()=>{
+  const report=normalizePrecomputedJudgeReport({
+    judge:{model:'gpt-5.6-sol'},
+    cases:[
+      {filename:'one.jpg',flash:{total:54},quality:{total:80},winner:'quality',judge_confidence:'high',rationale:'Full is more grounded.'},
+      {filename:'two.jpg',flash:{total:75},quality:{total:75},winner:'tie',rationale:'Equivalent.'},
+      {filename:'invalid.jpg',flash:{total:'bad'},quality:{total:50},winner:'quality'}
+    ]
+  })
+  assert.equal(report.source,'precomputed')
+  assert.equal(report.imported_cases,2)
+  assert.equal(report.judge_model,'gpt-5.6-sol')
+  const session=createBatchSession([photo('one.jpg','image/jpeg'),photo('two.jpg','image/jpeg')])
+  markBatchItemRunning(session,0)
+  recordBatchItem(session,0,{results:[]})
+  let summary=summarizeBatchSession(session,report)
+  assert.deepEqual(summary.judge,{matched:1,flash_mean:54,quality_mean:80,flash_wins:0,quality_wins:1,ties:0})
+  markBatchItemRunning(session,1)
+  recordBatchItem(session,1,{results:[]})
+  summary=summarizeBatchSession(session,report)
+  assert.equal(summary.judge.matched,2)
+  assert.equal(summary.judge.ties,1)
+  assert.throws(()=>normalizePrecomputedJudgeReport({cases:[]}),/no usable cases/)
+})
+
+test('batch export labels the judge as precomputed import only and contains no live judge request',()=>{
+  const session=createBatchSession([photo('one.jpg','image/jpeg')])
+  const judge=normalizePrecomputedJudgeReport({judge:{model:'gpt-5.6-sol'},cases:[{filename:'one.jpg',flash:{total:50},quality:{total:60},winner:'quality'}]})
+  const exported=serializableBatchReport(session,judge)
+  assert.equal(exported.judge_mode,'precomputed_import_only')
+  assert.equal(exported.judge.source,'precomputed')
+  assert.ok(Array.isArray(exported.judge.cases))
+  assert.equal(exported.judge.cases[0].filename,'one.jpg')
 })
 
 test('Moment Lens uses the three exact single-image prompts',()=>{
@@ -535,6 +643,7 @@ test('Studio exposes only the Moment Lens analysis route',()=>{
   const server=fs.readFileSync(path.join(workerRoot,'studio.mjs'),'utf8')
   assert.match(server,/\/api\/moment-lens/)
   assert.match(server,/photo-selection\.js/)
+  assert.match(server,/batch-comparison\.js/)
   assert.doesNotMatch(server,/\/api\/(?:detect|pose|interpret|session-summary|finalize-session|deep|youtube)/)
   assert.doesNotMatch(server,/contact[_ -]?sheet|detectorHealth|startDetector|NarrativeEngine|analyseDeepWindow/i)
 })
@@ -587,6 +696,30 @@ test('public interface accepts one or many local photos without a multi-image AP
   assert.match(app,/const thumbnailObjectUrls=new Set\(\)/)
   assert.match(app,/clearThumbnailObjectUrls\(\)/)
   assert.doesNotMatch(app,/if\(currentSource\)showSource\(/)
+})
+
+test('multi-photo UI exposes explicit progressive compare, stop, export and precomputed judge controls',()=>{
+  const html=fs.readFileSync(path.join(workerRoot,'public/index.html'),'utf8')
+  const app=fs.readFileSync(path.join(workerRoot,'public/app.js'),'utf8')
+  for(const id of ['batchCompareButton','batchWorkspace','batchProgressBar','batchMetrics','batchResultsList','batchStopButton','batchExportButton','judgeImportButton','judgeReportFile']){
+    assert.match(html,new RegExp(`id=["']${id}["']`),id)
+  }
+  assert.match(html,/No cloud judge runs inside Studio/)
+  assert.match(app,/while\(!batchStopRequested\)/)
+  assert.match(app,/batchSession=createBatchSession\(photoSelection\.items,\{preset,maxTokens:256\}\)/)
+  assert.match(app,/selectPhotoIndex\(photoSelection,index\)/)
+  assert.match(app,/compareJpeg\(jpeg,activeController\.signal\)/)
+  assert.match(app,/normalizePrecomputedJudgeReport/)
+  assert.match(app,/serializableBatchReport/)
+  assert.doesNotMatch(app,/\/api\/(?:batch|judge|openai|evaluation)/i)
+  assert.equal((app.match(/fetch\('\/api\/moment-lens'/g)||[]).length,1)
+})
+
+test('batch renderer never exposes raw model or judge text through innerHTML',()=>{
+  const app=fs.readFileSync(path.join(workerRoot,'public/app.js'),'utf8')
+  assert.doesNotMatch(app,/\.innerHTML\s*=/)
+  assert.match(app,/answer\.textContent=result\?batchResultAnswer/)
+  assert.match(app,/judgeDetail\.append\(document\.createTextNode/)
 })
 
 test('Moment Lens has no runtime package dependencies',()=>{

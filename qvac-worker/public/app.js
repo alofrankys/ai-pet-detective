@@ -5,6 +5,19 @@ import {
   photoCounter,
   selectPhotoIndex
 } from './photo-selection.js'
+import {
+  createBatchSession,
+  finishBatchSession,
+  judgeCaseForItem,
+  markBatchItemRunning,
+  markBatchStarted,
+  nextPendingBatchIndex,
+  normalizePrecomputedJudgeReport,
+  recordBatchItem,
+  requeueBatchItem,
+  serializableBatchReport,
+  summarizeBatchSession
+} from './batch-comparison.js'
 
 const video=document.getElementById('camera')
 const photoPreview=document.getElementById('photoPreview')
@@ -31,10 +44,23 @@ const statusDot=document.getElementById('statusDot')
 const statusText=document.getElementById('statusText')
 const momentGuide=document.getElementById('momentGuide')
 const analyseButton=document.getElementById('momentAnalyseButton')
+const batchCompareButton=document.getElementById('batchCompareButton')
 const analysing=document.getElementById('momentAnalysing')
 const analysingTitle=document.getElementById('momentAnalysingTitle')
 const comparisonResults=document.getElementById('comparisonResults')
 const tryAgainButton=document.getElementById('momentTryAgainButton')
+const batchWorkspace=document.getElementById('batchWorkspace')
+const batchStopButton=document.getElementById('batchStopButton')
+const batchExportButton=document.getElementById('batchExportButton')
+const judgeImportButton=document.getElementById('judgeImportButton')
+const judgeReportFile=document.getElementById('judgeReportFile')
+const batchProgressText=document.getElementById('batchProgressText')
+const batchProgressStatus=document.getElementById('batchProgressStatus')
+const batchProgressBar=document.getElementById('batchProgressBar')
+const batchMetrics=document.getElementById('batchMetrics')
+const judgeNotice=document.getElementById('judgeNotice')
+const judgeImportState=document.getElementById('judgeImportState')
+const batchResultsList=document.getElementById('batchResultsList')
 const presetButtons=[...document.querySelectorAll('[data-moment-preset]')]
 
 const modelElements=Object.freeze({
@@ -64,6 +90,7 @@ const copy={
     speedPath:'FLASH VISUAL PATH',qualityPath:'FULL VISUAL PATH',modelWaiting:'Waiting',modelQueued:'Queued',modelRunning:'Analysing',modelReady:'Ready',modelLimited:'Max reached',modelUnclear:'Unclear',modelError:'Unavailable',outputTokens:'output tokens',
     flashLooking:'Flash is looking…',qualityLooking:'Full is looking…',cameraSource:'Camera',fileSource:'Uploaded video',photoSource:'Photo',cameraError:'Camera unavailable',videoError:'This video cannot be opened in the browser.',photoError:'These photos cannot be opened. Choose JPEG, HEIC/HEIF, PNG, or WebP files.',
     changeSource:'Change source',stageLabel:'Camera, video, or selected photo',selectedPhotos:'Selected photos',photoList:'Photos',momentPromptLabel:'Moment Lens prompt',cameraShort:'Camera',videoShort:'Video',photosShort:'Photos',previousPhoto:'Previous photo',nextPhoto:'Next photo',photoLabel:'Photo',
+    batchCompare:'Compare all photos',batchResume:'Resume comparison',batchStop:'Stop',batchExport:'Export results',judgeImport:'Import judge report',batchEyebrow:'LOCAL MULTI-PHOTO RUN',batchTitle:'Batch Compare',batchIntro:'One photo at a time. Flash and Full run together; cumulative metrics update after every photo.',batchReady:'Ready to compare',batchRunning:'Comparing photos locally',batchStopped:'Stopped · results are safe',batchComplete:'Batch complete',judgePrecomputed:'Judge results are imported from a precomputed blind report. No cloud judge runs inside Studio.',judgeNotLoaded:'No judge report loaded',judgeLoaded:'Precomputed judge loaded',judgeInvalid:'Judge report not recognised',metricProgress:'PROGRESS',metricFlash:'FLASH',metricFull:'FULL',metricJudge:'JUDGE',metricCompleted:'completed',metricFailed:'failed',metricAverage:'avg',metricTokens:'tokens',metricMaxReached:'max reached',metricNoJudge:'not loaded',metricMatched:'matched',batchPending:'Pending',batchItemRunning:'Analysing',batchItemComplete:'Complete',batchItemError:'Error',judgeTie:'Tie',judgeWinner:'winner',judgeScore:'score',batchLocalOnly:'Local VisionPsy run',
     privacyNote:'Same selected image · Same prompt · Greedy · 256 max output tokens · Q4_K_M · 100% local.'
   },
   it:{
@@ -75,6 +102,7 @@ const copy={
     speedPath:'PERCORSO VISIVO FLASH',qualityPath:'PERCORSO VISIVO FULL',modelWaiting:'In attesa',modelQueued:'In coda',modelRunning:'Analisi',modelReady:'Pronto',modelLimited:'Limite raggiunto',modelUnclear:'Poco chiaro',modelError:'Non disponibile',outputTokens:'token di output',
     flashLooking:'Flash sta osservando…',qualityLooking:'Full sta osservando…',cameraSource:'Fotocamera',fileSource:'Video caricato',photoSource:'Foto',cameraError:'Fotocamera non disponibile',videoError:'Questo video non può essere aperto nel browser.',photoError:'Queste foto non possono essere aperte. Scegli file JPEG, HEIC/HEIF, PNG o WebP.',
     changeSource:'Cambia sorgente',stageLabel:'Fotocamera, video o foto selezionata',selectedPhotos:'Foto selezionate',photoList:'Foto',momentPromptLabel:'Prompt di Moment Lens',cameraShort:'Fotocamera',videoShort:'Video',photosShort:'Foto',previousPhoto:'Foto precedente',nextPhoto:'Foto successiva',photoLabel:'Foto',
+    batchCompare:'Confronta tutte le foto',batchResume:'Riprendi confronto',batchStop:'Ferma',batchExport:'Esporta risultati',judgeImport:'Importa report judge',batchEyebrow:'ANALISI MULTI-FOTO LOCALE',batchTitle:'Batch Compare',batchIntro:'Una foto alla volta. Flash e Full lavorano insieme; i KPI cumulativi si aggiornano dopo ogni foto.',batchReady:'Pronto al confronto',batchRunning:'Confronto locale in corso',batchStopped:'Fermato · risultati salvati',batchComplete:'Batch completato',judgePrecomputed:'I risultati del judge provengono da un report cieco precomputato. Nessun judge cloud viene eseguito nella Studio.',judgeNotLoaded:'Nessun report judge caricato',judgeLoaded:'Judge precomputato caricato',judgeInvalid:'Report judge non riconosciuto',metricProgress:'AVANZAMENTO',metricFlash:'FLASH',metricFull:'FULL',metricJudge:'JUDGE',metricCompleted:'completate',metricFailed:'errori',metricAverage:'media',metricTokens:'token',metricMaxReached:'limite raggiunto',metricNoJudge:'non caricato',metricMatched:'associate',batchPending:'In attesa',batchItemRunning:'Analisi',batchItemComplete:'Completa',batchItemError:'Errore',judgeTie:'Pareggio',judgeWinner:'vincitore',judgeScore:'punteggio',batchLocalOnly:'Analisi VisionPsy locale',
     privacyNote:'Stessa immagine selezionata · Stesso prompt · Greedy · Massimo 256 token di output · Q4_K_M · 100% locale.'
   }
 }
@@ -98,6 +126,10 @@ let modelProgressTimer=null
 let activeController=null
 let runtimeState='starting'
 let readyModelCount=0
+let batchSession=null
+let batchJudgeReport=null
+let batchActive=false
+let batchStopRequested=false
 const modelViews={flash:{phase:'waiting',result:null,startedAt:null},quality:{phase:'waiting',result:null,startedAt:null}}
 
 function t(key){return copy[language][key]||copy.en[key]||key}
@@ -138,6 +170,14 @@ function setControlsDisabled(){
   nextPhoto.disabled=sourceLocked||photoSelection.index>=photoSelection.items.length-1
   presetButtons.forEach(button=>button.disabled=busy)
   analyseButton.disabled=busy||sourceLoading||!sourceReady||!modelsReady
+  const hasPhotoBatch=currentSource?.kind==='photo'&&photoSelection.items.length>1
+  batchCompareButton.hidden=!hasPhotoBatch
+  batchCompareButton.disabled=!hasPhotoBatch||busy||sourceLoading||!modelsReady
+  batchCompareButton.textContent=batchSession?.stopped&&nextPendingBatchIndex(batchSession)>=0?t('batchResume'):t('batchCompare')
+  batchStopButton.hidden=!batchActive
+  batchStopButton.disabled=!batchActive
+  batchExportButton.disabled=!batchSession||summarizeBatchSession(batchSession,batchJudgeReport).processed===0
+  judgeImportButton.disabled=batchActive
 }
 
 function renderSourcePresentation(){
@@ -173,6 +213,129 @@ function outputTokenCount(result){
 function formatOutputTokens(result){
   const count=outputTokenCount(result)
   return count===null?`— ${t('outputTokens')}`:`${count} ${t('outputTokens')}`
+}
+
+function formatBatchAverage(value,formatter){
+  return value===null||value===undefined?'—':formatter(value)
+}
+
+function batchStatusLabel(status){
+  return t({running:'batchItemRunning',complete:'batchItemComplete',error:'batchItemError',skipped:'batchItemError'}[status]||'batchPending')
+}
+
+function appendBatchMetric(label,value,detail){
+  const card=document.createElement('div')
+  card.className='batch-metric'
+  const labelElement=document.createElement('span')
+  labelElement.textContent=label
+  const valueElement=document.createElement('strong')
+  valueElement.textContent=value
+  const detailElement=document.createElement('small')
+  detailElement.textContent=detail
+  card.append(labelElement,valueElement,detailElement)
+  batchMetrics.append(card)
+}
+
+function batchResultAnswer(result){
+  const answer=safeVisibleAnswer(result)
+  if(answer)return answer
+  return result?.status==='error'?t('momentError'):t('momentUnclear')
+}
+
+function renderBatchResult(item,isLatest){
+  const judge=judgeCaseForItem(batchJudgeReport,item)
+  const details=document.createElement('details')
+  details.className='batch-result'
+  details.open=Boolean(isLatest||item.status==='running')
+  const summary=document.createElement('summary')
+  const name=document.createElement('span')
+  name.className='batch-result-name'
+  name.textContent=`${item.index+1}. ${item.filename}`
+  const state=document.createElement('span')
+  state.className=`batch-result-state ${item.status}`
+  state.textContent=batchStatusLabel(item.status)
+  summary.append(name,state)
+  if(judge){
+    const judgePill=document.createElement('span')
+    judgePill.className='batch-result-judge'
+    judgePill.textContent=judge.winner==='tie'?t('judgeTie'):`${judge.winner==='quality'?'Full':'Flash'} ${t('judgeWinner')}`
+    summary.append(judgePill)
+  }
+  details.append(summary)
+  const body=document.createElement('div')
+  body.className='batch-result-body'
+  const models=document.createElement('div')
+  models.className='batch-result-models'
+  for(const variant of ['flash','quality']){
+    const result=item.results.find(candidate=>candidate?.variant===variant)
+    const model=document.createElement('article')
+    model.className='batch-result-model'
+    const header=document.createElement('header')
+    const modelName=document.createElement('span')
+    modelName.textContent=variant==='flash'?'FLASH':'FULL'
+    const timing=document.createElement('span')
+    timing.textContent=result?`${formatInferenceTime(result.inference_ms)} · ${formatOutputTokens(result)}`:batchStatusLabel(item.status)
+    header.append(modelName,timing)
+    const answer=document.createElement('p')
+    answer.textContent=result?batchResultAnswer(result):batchStatusLabel(item.status)
+    model.append(header,answer)
+    models.append(model)
+  }
+  body.append(models)
+  if(judge){
+    const judgeDetail=document.createElement('div')
+    judgeDetail.className='batch-result-judge-detail'
+    const heading=document.createElement('strong')
+    heading.textContent=`${batchJudgeReport.label} · Flash ${judge.flash_score} / Full ${judge.quality_score}`
+    judgeDetail.append(heading)
+    if(judge.rationale)judgeDetail.append(document.createTextNode(` — ${judge.rationale}`))
+    body.append(judgeDetail)
+  }
+  details.append(body)
+  return details
+}
+
+function renderBatchUI(){
+  if(!batchSession){
+    batchWorkspace.hidden=true
+    batchMetrics.replaceChildren()
+    batchResultsList.replaceChildren()
+    return
+  }
+  batchWorkspace.hidden=false
+  const summary=summarizeBatchSession(batchSession,batchJudgeReport)
+  batchProgressText.textContent=`${summary.processed} / ${summary.total}`
+  batchProgressBar.style.width=`${summary.total?Math.round(summary.processed/summary.total*100):0}%`
+  batchProgressStatus.textContent=batchActive?t('batchRunning'):batchSession.completed_at?t('batchComplete'):batchSession.stopped?t('batchStopped'):t('batchReady')
+  batchMetrics.replaceChildren()
+  appendBatchMetric(t('metricProgress'),`${summary.processed}/${summary.total}`,`${summary.completed} ${t('metricCompleted')} · ${summary.failed} ${t('metricFailed')}`)
+  for(const variant of ['flash','quality']){
+    const model=summary.models[variant]
+    const average=formatBatchAverage(model.average_inference_ms,value=>formatInferenceTime(value))
+    const tokens=formatBatchAverage(model.average_output_tokens,value=>String(value))
+    appendBatchMetric(variant==='flash'?t('metricFlash'):t('metricFull'),average,`${tokens} ${t('metricTokens')} · ${model.max_reached} ${t('metricMaxReached')}`)
+  }
+  const judged=summary.judge
+  const judgeValue=judged.matched?`F ${judged.flash_mean} · Full ${judged.quality_mean}`:'—'
+  const judgeDetail=judged.matched?`${judged.matched} ${t('metricMatched')} · ${judged.flash_wins}/${judged.quality_wins}/${judged.ties}`:t('metricNoJudge')
+  appendBatchMetric(t('metricJudge'),judgeValue,judgeDetail)
+  judgeNotice.classList.toggle('loaded',Boolean(batchJudgeReport))
+  judgeImportState.textContent=batchJudgeReport?`${t('judgeLoaded')} · ${batchJudgeReport.judge_model} · ${batchJudgeReport.imported_cases}`:t('judgeNotLoaded')
+  const visible=batchSession.items.filter(item=>item.status!=='pending')
+  const latest=visible.at(-1)
+  batchResultsList.replaceChildren(...visible.map(item=>renderBatchResult(item,item===latest)))
+  setControlsDisabled()
+}
+
+function resetBatchSession(){
+  batchSession=null
+  batchJudgeReport=null
+  batchActive=false
+  batchStopRequested=false
+  batchWorkspace.hidden=true
+  batchMetrics.replaceChildren()
+  batchResultsList.replaceChildren()
+  judgeImportState.textContent=t('judgeNotLoaded')
 }
 
 function safeVisibleAnswer(result){
@@ -277,6 +440,7 @@ function stopCurrentSource(){
   momentGuide.textContent=t('momentGuide')
   momentGuide.classList.remove('ready')
   resetComparison()
+  resetBatchSession()
   setControlsDisabled()
 }
 
@@ -414,8 +578,12 @@ async function openPhotos(files){
   photoSelection=selection
   sourceLoading=true
   setControlsDisabled()
-  await showSelectedPhoto()
+  const shown=await showSelectedPhoto()
   sourceLoading=false
+  if(shown&&photoSelection.items.length>1){
+    batchSession=createBatchSession(photoSelection.items,{preset,maxTokens:256})
+    renderBatchUI()
+  }
   setControlsDisabled()
 }
 
@@ -466,6 +634,7 @@ async function readComparisonStream(response){
   const decoder=new TextDecoder()
   let buffer=''
   let complete=false
+  let totalMs=null
   while(true){
     const {done,value}=await reader.read()
     buffer+=decoder.decode(value||new Uint8Array(),{stream:!done})
@@ -473,12 +642,18 @@ async function readComparisonStream(response){
     buffer=lines.pop()||''
     for(const line of lines){
       if(!line.trim())continue
-      complete=handleComparisonEvent(JSON.parse(line))||complete
+      const event=JSON.parse(line)
+      if(event.type==='comparison-complete'&&Number.isFinite(Number(event.total_ms)))totalMs=Number(event.total_ms)
+      complete=handleComparisonEvent(event)||complete
     }
     if(done)break
   }
-  if(buffer.trim())complete=handleComparisonEvent(JSON.parse(buffer))||complete
-  return complete
+  if(buffer.trim()){
+    const event=JSON.parse(buffer)
+    if(event.type==='comparison-complete'&&Number.isFinite(Number(event.total_ms)))totalMs=Number(event.total_ms)
+    complete=handleComparisonEvent(event)||complete
+  }
+  return {complete,totalMs}
 }
 
 function markIncompleteModelsAsError(){
@@ -489,6 +664,123 @@ function markIncompleteModelsAsError(){
       renderModel(variant)
     }
   }
+}
+
+async function compareJpeg(jpeg,signal){
+  const response=await fetch('/api/moment-lens',{method:'POST',headers:{'content-type':'image/jpeg','x-moment-preset':preset},body:jpeg,signal})
+  const stream=await readComparisonStream(response)
+  if(!stream.complete)throw new Error('Comparison ended early')
+  return stream
+}
+
+async function sha256Blob(blob){
+  if(!globalThis.crypto?.subtle)return null
+  const digest=await crypto.subtle.digest('SHA-256',await blob.arrayBuffer())
+  return [...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,'0')).join('')
+}
+
+function currentModelResults(){
+  return ['flash','quality'].map(variant=>modelViews[variant].result).filter(Boolean).map(result=>JSON.parse(JSON.stringify(result)))
+}
+
+function batchMatchesCurrentSelection(){
+  return batchSession?.preset===preset&&batchSession.items.length===photoSelection.items.length&&batchSession.items.every((item,index)=>item.filename===photoSelection.items[index]?.name)
+}
+
+async function analysePhotoBatch(){
+  if(batchActive||busy||sourceLoading||!modelsReady||currentSource?.kind!=='photo'||photoSelection.items.length<2)return
+  if(!batchMatchesCurrentSelection()||batchSession.completed_at)batchSession=createBatchSession(photoSelection.items,{preset,maxTokens:256})
+  markBatchStarted(batchSession)
+  batchActive=true
+  batchStopRequested=false
+  busy=true
+  analyseButton.hidden=true
+  renderBatchUI()
+  while(!batchStopRequested){
+    const index=nextPendingBatchIndex(batchSession)
+    if(index<0)break
+    markBatchItemRunning(batchSession,index)
+    selectPhotoIndex(photoSelection,index)
+    renderBatchUI()
+    const shown=await showSelectedPhoto()
+    if(!shown){
+      recordBatchItem(batchSession,index,{status:'error',results:[]})
+      renderBatchUI()
+      continue
+    }
+    if(batchStopRequested){
+      requeueBatchItem(batchSession,index)
+      break
+    }
+    prepareComparison()
+    activeController=new AbortController()
+    try{
+      const jpeg=await frozenJpeg()
+      if(!jpeg)throw new Error('Could not freeze this image')
+      freezeCanvas.classList.add('visible')
+      const [stream,jpegSha256]=await Promise.all([
+        compareJpeg(jpeg,activeController.signal),
+        sha256Blob(jpeg)
+      ])
+      recordBatchItem(batchSession,index,{status:'complete',results:currentModelResults(),totalMs:stream.totalMs,jpegSha256})
+    }catch(error){
+      if(batchStopRequested||error?.name==='AbortError')requeueBatchItem(batchSession,index)
+      else{
+        markIncompleteModelsAsError()
+        recordBatchItem(batchSession,index,{status:'error',results:currentModelResults()})
+      }
+    }finally{
+      activeController=null
+      clearInterval(modelProgressTimer)
+      modelProgressTimer=null
+      analysing.hidden=true
+      comparisonResults.hidden=false
+      tryAgainButton.hidden=true
+      renderBatchUI()
+    }
+  }
+  finishBatchSession(batchSession,{stopped:batchStopRequested})
+  batchActive=false
+  busy=false
+  activeController=null
+  analyseButton.hidden=false
+  tryAgainButton.hidden=false
+  renderBatchUI()
+  batchWorkspace.scrollIntoView({behavior:'smooth',block:'nearest'})
+}
+
+function stopPhotoBatch(){
+  if(!batchActive)return
+  batchStopRequested=true
+  activeController?.abort()
+  batchProgressStatus.textContent=t('batchStopped')
+}
+
+function exportBatchResults(){
+  if(!batchSession)return
+  const report=serializableBatchReport(batchSession,batchJudgeReport)
+  const blob=new Blob([`${JSON.stringify(report,null,2)}\n`],{type:'application/json'})
+  const url=URL.createObjectURL(blob)
+  const link=document.createElement('a')
+  link.href=url
+  link.download=`moment-lens-batch-${new Date().toISOString().replace(/[:.]/g,'-')}.json`
+  document.body.append(link)
+  link.click()
+  link.remove()
+  setTimeout(()=>URL.revokeObjectURL(url),0)
+}
+
+async function importJudgeReport(file){
+  if(!file)return
+  try{
+    batchJudgeReport=normalizePrecomputedJudgeReport(JSON.parse(await file.text()))
+  }catch{
+    batchJudgeReport=null
+    renderBatchUI()
+    judgeImportState.textContent=t('judgeInvalid')
+    return
+  }
+  renderBatchUI()
 }
 
 async function analyseCurrentMoment(){
@@ -507,9 +799,7 @@ async function analyseCurrentMoment(){
     const jpeg=await frozenJpeg()
     if(!jpeg)throw new Error('Could not freeze this frame')
     freezeCanvas.classList.add('visible')
-    const response=await fetch('/api/moment-lens',{method:'POST',headers:{'content-type':'image/jpeg','x-moment-preset':preset},body:jpeg,signal:activeController.signal})
-    const complete=await readComparisonStream(response)
-    if(!complete)throw new Error('Comparison ended early')
+    await compareJpeg(jpeg,activeController.signal)
   }catch{
     if(token===requestToken)markIncompleteModelsAsError()
   }finally{
@@ -551,6 +841,7 @@ function applyLanguage(){
   renderModel('quality')
   renderRuntimeStatus()
   setControlsDisabled()
+  renderBatchUI()
 }
 
 async function refreshStatus(){
@@ -573,8 +864,17 @@ async function refreshStatus(){
 
 presetButtons.forEach(button=>button.addEventListener('click',()=>{
   if(busy)return
+  const changed=preset!==button.dataset.momentPreset
   preset=button.dataset.momentPreset
   presetButtons.forEach(item=>{const active=item===button;item.classList.toggle('active',active);item.setAttribute('aria-pressed',String(active))})
+  if(changed&&batchSession){
+    resetBatchSession()
+    if(currentSource?.kind==='photo'&&photoSelection.items.length>1){
+      batchSession=createBatchSession(photoSelection.items,{preset,maxTokens:256})
+      renderBatchUI()
+    }
+  }
+  setControlsDisabled()
 }))
 startButton.addEventListener('click',startCamera)
 fileButton.addEventListener('click',()=>{videoFile.value='';videoFile.click()})
@@ -595,6 +895,11 @@ photoFilmstrip.addEventListener('keydown',event=>{
   if(index!==null){event.preventDefault();choosePhoto(index,{focusThumbnail:true})}
 })
 analyseButton.addEventListener('click',analyseCurrentMoment)
+batchCompareButton.addEventListener('click',analysePhotoBatch)
+batchStopButton.addEventListener('click',stopPhotoBatch)
+batchExportButton.addEventListener('click',exportBatchResults)
+judgeImportButton.addEventListener('click',()=>{judgeReportFile.value='';judgeReportFile.click()})
+judgeReportFile.addEventListener('change',()=>importJudgeReport(judgeReportFile.files[0]))
 tryAgainButton.addEventListener('click',tryAnotherMoment)
 languageSelect.addEventListener('change',applyLanguage)
 video.addEventListener('play',()=>{if(!busy&&freezeCanvas.classList.contains('visible'))tryAnotherMoment()})

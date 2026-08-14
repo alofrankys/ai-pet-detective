@@ -260,7 +260,7 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='GET'){
       const requested=url.pathname==='/'?'index.html':url.pathname.slice(1)
-      if(!['index.html','styles.css','app.js','photo-selection.js'].includes(requested))return json(res,404,{error:'not found'})
+      if(!['index.html','styles.css','app.js','photo-selection.js','batch-comparison.js'].includes(requested))return json(res,404,{error:'not found'})
       const file=path.join(publicDir,requested)
       res.writeHead(200,{'content-type':types[path.extname(file)]||'application/octet-stream','x-studio-build':'moment-lens-compare-q4','cache-control':'no-store'})
       return fs.createReadStream(file).pipe(res)
