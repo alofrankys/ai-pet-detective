@@ -1,9 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-const [reportArg,blindArg,keyArg]=process.argv.slice(2)
+const [reportArg,blindArg,keyArg,sourceArg]=process.argv.slice(2)
 if(!reportArg||!blindArg||!keyArg){
-  console.error('Usage: node prepare-judge-sample.mjs <report.json> <blind.json> <key.json>')
+  console.error('Usage: node prepare-judge-sample.mjs <report.json> <blind.json> <key.json> [image-directory]')
   process.exit(2)
 }
 
@@ -11,9 +11,20 @@ const reportFile=path.resolve(reportArg)
 const blindFile=path.resolve(blindArg)
 const keyFile=path.resolve(keyArg)
 const report=JSON.parse(fs.readFileSync(reportFile,'utf8'))
-const sourceDir=path.resolve(report.source_directory)
+const sourceDir=path.resolve(sourceArg||report.source_directory||'')
 const cases=[]
 const key=[]
+
+function resolveImagePath(filename){
+  const candidates=[
+    path.join(sourceDir,`${filename}.png`),
+    path.join(sourceDir,filename),
+    path.join(sourceDir,`${path.parse(filename).name}.jpg`)
+  ]
+  const resolved=candidates.find(candidate=>fs.existsSync(candidate))
+  if(!resolved)throw new Error(`Missing image for ${filename}`)
+  return resolved
+}
 
 for(const [index,item] of report.items.entries()){
   const byVariant=Object.fromEntries(item.results.map(result=>[result.variant,result]))
@@ -22,7 +33,8 @@ for(const [index,item] of report.items.entries()){
   const bVariant=aVariant==='flash'?'quality':'flash'
   cases.push({
     case_id:`case_${String(index+1).padStart(2,'0')}`,
-    image_path:path.join(sourceDir,item.filename),
+    filename:item.filename,
+    image_path:resolveImagePath(item.filename),
     response_a:byVariant[aVariant].answer||byVariant[aVariant].raw_answer,
     response_b:byVariant[bVariant].answer||byVariant[bVariant].raw_answer
   })

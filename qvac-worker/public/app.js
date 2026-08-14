@@ -1,6 +1,6 @@
 import {
-  createObjectUrlLease,
   createPhotoSelection,
+  decodePhotoFrame,
   movePhotoIndex,
   photoCounter,
   selectPhotoIndex
@@ -113,7 +113,7 @@ let currentSource=null
 let objectUrl=null
 let photoSelection=createPhotoSelection([])
 let photoDecodeToken=0
-const photoObjectUrl=createObjectUrlLease()
+let activePhotoFrame=null
 const thumbnailObjectUrls=new Set()
 let sourceReady=false
 let sourceLoading=false
@@ -383,7 +383,8 @@ function resetComparison({hideFreeze=true}={}){
 
 function clearPhotoSelection(){
   photoDecodeToken++
-  photoObjectUrl.clear()
+  activePhotoFrame?.release()
+  activePhotoFrame=null
   clearThumbnailObjectUrls()
   photoSelection=createPhotoSelection([])
   photoPreview.removeAttribute('src')
@@ -532,39 +533,45 @@ async function showSelectedPhoto({focusThumbnail=false}={}){
   momentGuide.classList.remove('ready')
   resetComparison()
   freezeCanvas.classList.remove('visible')
-  const url=photoObjectUrl.replace(item.file)
-  photoPreview.src=url
-  photoPreview.alt=item.name
-  photoPreview.hidden=false
   video.hidden=true
+  let decodedFrame=null
   try{
-    if(typeof photoPreview.decode==='function')await photoPreview.decode()
-    else if(!photoPreview.complete)await new Promise((resolve,reject)=>{photoPreview.addEventListener('load',resolve,{once:true});photoPreview.addEventListener('error',reject,{once:true})})
-    if(token!==photoDecodeToken)return false
-    if(!photoPreview.naturalWidth||!photoPreview.naturalHeight)throw new Error('invalid photo')
+    try{
+      decodedFrame=await decodePhotoFrame(item.file)
+    }catch(error){
+      if(!['image/heic','image/heif'].includes(item.type))throw error
+      const response=await fetch('/api/photo-preview',{method:'POST',headers:{'content-type':item.type},body:item.file})
+      if(!response.ok)throw new Error('HEIC preview conversion failed')
+      const convertedFrame=await decodePhotoFrame(await response.blob())
+      decodedFrame={...convertedFrame,file:item.file}
+    }
+    if(token!==photoDecodeToken){decodedFrame.release();return false}
+    const previousFrame=activePhotoFrame
+    activePhotoFrame=decodedFrame
+    photoPreview.src=decodedFrame.url
+    photoPreview.alt=item.name
+    photoPreview.hidden=false
+    previousFrame?.release()
     showSource('photo',`${photoCounter(photoSelection)} · ${item.name}`)
     renderPhotoFilmstrip()
     if(focusThumbnail)photoFilmstrip.querySelector(`[data-photo-index="${photoSelection.index}"]`)?.focus()
     return true
   }catch{
+    decodedFrame?.release()
     if(token===photoDecodeToken){
-      const failedIndex=photoSelection.index
-      photoSelection.items.splice(failedIndex,1)
-      selectPhotoIndex(photoSelection,failedIndex)
-      photoObjectUrl.clear()
+      activePhotoFrame?.release()
+      activePhotoFrame=null
       photoPreview.removeAttribute('src')
       photoPreview.alt=''
       photoPreview.hidden=true
-      if(photoSelection.items.length)return showSelectedPhoto({focusThumbnail})
       currentSource=null
       sourceReady=false
       sourceBadge.hidden=true
-      sourceToolbar.hidden=true
-      emptyState.hidden=false
-      photoQueue.hidden=true
-      photoFilmstrip.replaceChildren()
+      sourceToolbar.hidden=false
+      emptyState.hidden=true
       momentGuide.textContent=t('photoError')
       momentGuide.classList.remove('ready')
+      renderPhotoFilmstrip()
       setControlsDisabled()
     }
     return false
@@ -597,10 +604,14 @@ async function choosePhoto(index,{focusThumbnail=false}={}){
   setControlsDisabled()
 }
 
-function frozenJpeg(){
-  const source=currentSource?.kind==='photo'?photoPreview:video
-  const width=currentSource?.kind==='photo'?photoPreview.naturalWidth:video.videoWidth
-  const height=currentSource?.kind==='photo'?photoPreview.naturalHeight:video.videoHeight
+function frozenJpeg(expectedPhotoFile=null){
+  const isPhoto=currentSource?.kind==='photo'
+  if(isPhoto&&(!activePhotoFrame||expectedPhotoFile&&activePhotoFrame.file!==expectedPhotoFile)){
+    throw new Error('Selected photo does not match the decoded frame')
+  }
+  const source=isPhoto?activePhotoFrame.image:video
+  const width=isPhoto?activePhotoFrame.image.naturalWidth:video.videoWidth
+  const height=isPhoto?activePhotoFrame.image.naturalHeight:video.videoHeight
   const dimensions=fitDimensions(width,height)
   freezeCanvas.width=dimensions.width
   freezeCanvas.height=dimensions.height
@@ -715,14 +726,15 @@ async function analysePhotoBatch(){
     prepareComparison()
     activeController=new AbortController()
     try{
-      const jpeg=await frozenJpeg()
+      const jpeg=await frozenJpeg(photoSelection.items[index].file)
       if(!jpeg)throw new Error('Could not freeze this image')
       freezeCanvas.classList.add('visible')
-      const [stream,jpegSha256]=await Promise.all([
+      const [stream,jpegSha256,sourceSha256]=await Promise.all([
         compareJpeg(jpeg,activeController.signal),
-        sha256Blob(jpeg)
+        sha256Blob(jpeg),
+        sha256Blob(photoSelection.items[index].file)
       ])
-      recordBatchItem(batchSession,index,{status:'complete',results:currentModelResults(),totalMs:stream.totalMs,jpegSha256})
+      recordBatchItem(batchSession,index,{status:'complete',results:currentModelResults(),totalMs:stream.totalMs,jpegSha256,sourceSha256})
     }catch(error){
       if(batchStopRequested||error?.name==='AbortError')requeueBatchItem(batchSession,index)
       else{

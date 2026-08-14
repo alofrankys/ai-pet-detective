@@ -31,6 +31,13 @@ VisionPsy-Nano-460M-Flash and VisionPsy-Nano-460M Full.
   rewriting or shortening otherwise valid natural-language responses;
 - local processing with no cloud upload.
 
+On macOS, HEIC/HEIF files that the browser cannot decode are converted locally
+through Quick Look before the same 1280-pixel JPEG freeze used for every other
+source. The queue never drops an undecodable item or shifts later filenames.
+Batch exports record separate SHA-256 values for the original source file and
+the exact frozen JPEG sent to both models, so image-to-result alignment can be
+audited before a judge report is produced.
+
 Flash and Full start simultaneously in the Studio. Each card exposes its own
 live elapsed time while the local model is running. Generated text is revealed
 only after the complete answer passes the local echo/schema safety check, so an

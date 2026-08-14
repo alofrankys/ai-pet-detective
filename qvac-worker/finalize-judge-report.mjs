@@ -31,7 +31,7 @@ const cases=blindJudge.cases.map(item=>{
   wins[winner]+=1
   return {
     case_id:item.case_id,
-    filename:path.basename(input.image_path),
+    filename:input.filename||path.basename(input.image_path),
     reference_observation:item.reference_observation,
     flash,
     quality,

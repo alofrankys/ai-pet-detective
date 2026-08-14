@@ -124,3 +124,52 @@ export function createObjectUrlLease({
     }
   }
 }
+
+/**
+ * Decode one file in its own image element and keep its object URL alive until
+ * the caller has finished drawing that exact image. A fresh element per file
+ * prevents a late decode from an earlier selection being mistaken for the
+ * current photo during fast batch runs.
+ */
+export async function decodePhotoFrame(file,{
+  ImageCtor=globalThis.Image,
+  createObjectURL=globalThis.URL?.createObjectURL?.bind(globalThis.URL),
+  revokeObjectURL=globalThis.URL?.revokeObjectURL?.bind(globalThis.URL)
+}={}){
+  if(!file)throw new TypeError('A photo file is required')
+  if(typeof ImageCtor!=='function'||typeof createObjectURL!=='function'||typeof revokeObjectURL!=='function'){
+    throw new TypeError('Image decoding dependencies are required')
+  }
+
+  const url=createObjectURL(file)
+  if(typeof url!=='string'||!url)throw new TypeError('Object URL creation failed')
+  const image=new ImageCtor()
+  let released=false
+  const release=()=>{
+    if(released)return
+    released=true
+    revokeObjectURL(url)
+  }
+
+  try{
+    await new Promise((resolve,reject)=>{
+      let settled=false
+      const finish=callback=>{
+        if(settled)return
+        settled=true
+        image.onload=null
+        image.onerror=null
+        callback()
+      }
+      image.onload=()=>finish(resolve)
+      image.onerror=()=>finish(()=>reject(new Error('photo load failed')))
+      image.src=url
+    })
+    if(typeof image.decode==='function')await image.decode()
+    if(!image.naturalWidth||!image.naturalHeight)throw new Error('invalid photo')
+    return {file,url,image,release}
+  }catch(error){
+    release()
+    throw error
+  }
+}

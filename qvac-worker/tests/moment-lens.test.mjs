@@ -11,6 +11,7 @@ import {
   analyseMomentLens,
   analyseMomentLensPair,
   buildMomentLensRequest,
+  convertHeicToPng,
   sanitizeMomentLensAnswer
 } from '../studio.mjs'
 import {
@@ -22,6 +23,7 @@ import {
   clampPhotoIndex,
   createObjectUrlLease,
   createPhotoSelection,
+  decodePhotoFrame,
   filterSupportedPhotoFiles,
   isSupportedPhotoFile,
   movePhotoIndex,
@@ -135,6 +137,62 @@ test('photo object URLs are created lazily, reused and revoked exactly once',()=
   assert.deepEqual(revoked,['blob:test-1','blob:test-2'])
 })
 
+test('each batch photo is decoded in an isolated image and cannot reuse a stale frame',async()=>{
+  const files=[photo('slow.heic','image/heic'),photo('fast.jpg','image/jpeg')]
+  const created=[]
+  const revoked=[]
+  const pending=new Map()
+  class FakeImage{
+    set src(url){this._src=url;pending.set(url,this)}
+    get src(){return this._src}
+    async decode(){this.decoded=true}
+  }
+  const dependencies={
+    ImageCtor:FakeImage,
+    createObjectURL(file){const url=`blob:${file.name}`;created.push([file,url]);return url},
+    revokeObjectURL(url){revoked.push(url)}
+  }
+
+  const slowPromise=decodePhotoFrame(files[0],dependencies)
+  const fastPromise=decodePhotoFrame(files[1],dependencies)
+  const fastImage=pending.get('blob:fast.jpg')
+  fastImage.naturalWidth=1200
+  fastImage.naturalHeight=800
+  fastImage.onload()
+  const fastFrame=await fastPromise
+  const slowImage=pending.get('blob:slow.heic')
+  slowImage.naturalWidth=900
+  slowImage.naturalHeight=1200
+  slowImage.onload()
+  const slowFrame=await slowPromise
+
+  assert.notStrictEqual(slowFrame.image,fastFrame.image)
+  assert.strictEqual(slowFrame.file,files[0])
+  assert.strictEqual(fastFrame.file,files[1])
+  assert.equal(slowFrame.image.src,'blob:slow.heic')
+  assert.equal(fastFrame.image.src,'blob:fast.jpg')
+  assert.deepEqual(created.map(([file])=>file),files)
+  assert.deepEqual(revoked,[])
+  slowFrame.release()
+  fastFrame.release()
+  assert.deepEqual(revoked,['blob:slow.heic','blob:fast.jpg'])
+})
+
+test('HEIC conversion uses one isolated local file and returns a real PNG',async()=>{
+  const source=Buffer.from('fake-heic-source')
+  const calls=[]
+  const png=await convertHeicToPng(source,{run:async(command,args)=>{
+    calls.push({command,args})
+    const output=`${args.at(-1)}.png`
+    await fs.promises.writeFile(output,Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]))
+  }})
+  assert.equal(calls.length,1)
+  assert.equal(calls[0].command,'qlmanage')
+  assert.deepEqual(calls[0].args.slice(0,4),['-t','-s','1600','-o'])
+  assert.equal(png.subarray(0,4).toString('hex'),'89504e47')
+  await assert.rejects(()=>fs.promises.access(path.dirname(calls[0].args.at(-1))))
+})
+
 test('photo selection stays DOM-free and never starts analysis',()=>{
   const source=fs.readFileSync(path.join(workerRoot,'public/photo-selection.js'),'utf8')
   assert.doesNotMatch(source,/\bdocument\b|querySelector|addEventListener|\bfetch\s*\(|\/api\/moment-lens/)
@@ -160,7 +218,7 @@ test('batch metrics update cumulatively and keep Flash and Full independent',()=
   const session=createBatchSession([photo('one.jpg','image/jpeg'),photo('two.jpg','image/jpeg')])
   markBatchStarted(session)
   markBatchItemRunning(session,0)
-  recordBatchItem(session,0,{totalMs:420,jpegSha256:'abc',results:[
+  recordBatchItem(session,0,{totalMs:420,jpegSha256:'abc',sourceSha256:'source-abc',results:[
     {variant:'flash',status:'clear',answer:'A dog.',inference_ms:100,output_tokens:20,finish_reason:'stop'},
     {variant:'quality',status:'clear',answer:'A dog by a chair.',inference_ms:300,output_tokens:256,finish_reason:'length'}
   ]})
@@ -172,6 +230,7 @@ test('batch metrics update cumulatively and keep Flash and Full independent',()=
   assert.equal(summary.models.quality.average_inference_ms,300)
   assert.equal(summary.models.quality.average_output_tokens,256)
   assert.equal(summary.models.quality.max_reached,1)
+  assert.equal(session.items[0].source_sha256,'source-abc')
 
   markBatchItemRunning(session,1)
   recordBatchItem(session,1,{results:[

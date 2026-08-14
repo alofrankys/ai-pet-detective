@@ -1,7 +1,10 @@
 import fs from 'node:fs'
 import http from 'node:http'
+import os from 'node:os'
 import path from 'node:path'
+import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import {
   VISIONPSY_MODELS,
   VISIONPSY_WEIGHT_QUANTIZATION,
@@ -12,6 +15,7 @@ const here=path.dirname(fileURLToPath(import.meta.url))
 const publicDir=path.join(here,'public')
 const port=Number(process.env.PORT||8803)
 const runtimePool=createVisionPsyRuntimePool()
+const execFileAsync=promisify(execFile)
 let startupPromise=null
 
 const types={
@@ -42,6 +46,23 @@ function readBody(req,limit=5_000_000){
     req.on('end',()=>{if(!settled){settled=true;resolve(Buffer.concat(chunks))}})
     req.on('error',fail)
   })
+}
+
+export async function convertHeicToPng(bytes,{run=execFileAsync}={}){
+  const input=Buffer.isBuffer(bytes)?bytes:bytes instanceof Uint8Array?Buffer.from(bytes):null
+  if(!input?.length)throw new Error('HEIC conversion requires image bytes')
+  const temporaryDirectory=await fs.promises.mkdtemp(path.join(os.tmpdir(),'moment-lens-heic-'))
+  const sourceFile=path.join(temporaryDirectory,'source.heic')
+  const outputFile=`${sourceFile}.png`
+  try{
+    await fs.promises.writeFile(sourceFile,input)
+    await run('qlmanage',['-t','-s','1600','-o',temporaryDirectory,sourceFile],{timeout:30_000})
+    const png=await fs.promises.readFile(outputFile)
+    if(png.length<8||png[0]!==0x89||png.subarray(1,4).toString()!=='PNG')throw new Error('HEIC conversion produced an invalid image')
+    return png
+  }finally{
+    await fs.promises.rm(temporaryDirectory,{recursive:true,force:true})
+  }
 }
 
 function ensureAllRuntimes(){
@@ -257,6 +278,19 @@ const server=http.createServer(async(req,res)=>{
       const result=await analyseMomentLensPair({jpeg,preset},{},()=>performance.now(),event=>ndjson(res,event))
       ndjson(res,{type:'comparison-complete',total_ms:result.total_ms})
       return res.end()
+    }
+    if(req.method==='POST'&&url.pathname==='/api/photo-preview'){
+      const contentType=String(req.headers['content-type']||'').split(';')[0].trim().toLowerCase()
+      if(!['image/heic','image/heif','application/octet-stream'].includes(contentType))return json(res,415,{error:'Photo preview accepts HEIC or HEIF'})
+      const source=await readBody(req,20_000_000)
+      const png=await convertHeicToPng(source)
+      res.writeHead(200,{
+        'content-type':'image/png',
+        'content-length':png.length,
+        'cache-control':'no-store',
+        'x-content-type-options':'nosniff'
+      })
+      return res.end(png)
     }
     if(req.method==='GET'){
       const requested=url.pathname==='/'?'index.html':url.pathname.slice(1)

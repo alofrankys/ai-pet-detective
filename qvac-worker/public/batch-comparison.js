@@ -39,6 +39,7 @@ export function createBatchSession(photoItems,{preset='describe',maxTokens=256,n
     source_type:boundedText(item?.type||item?.file?.type,100),
     source_bytes:Math.max(0,Number(item?.size||item?.file?.size)||0),
     status:'pending',
+    source_sha256:null,
     jpeg_sha256:null,
     started_at:null,
     completed_at:null,
@@ -86,16 +87,18 @@ export function requeueBatchItem(session,index){
   item.started_at=null
   item.completed_at=null
   item.total_ms=null
+  item.source_sha256=null
   item.jpeg_sha256=null
   item.results=[]
   return item
 }
 
-export function recordBatchItem(session,index,{results=[],totalMs=null,jpegSha256=null,status='complete'}={},now=()=>new Date().toISOString()){
+export function recordBatchItem(session,index,{results=[],totalMs=null,jpegSha256=null,sourceSha256=null,status='complete'}={},now=()=>new Date().toISOString()){
   const item=session.items[index]
   if(!item)throw new RangeError('Unknown batch item')
   item.results=Array.isArray(results)?results:[]
   item.total_ms=finiteNumber(totalMs)
+  item.source_sha256=boundedText(sourceSha256,128)||null
   item.jpeg_sha256=boundedText(jpegSha256,128)||null
   item.status=['complete','error','skipped'].includes(status)?status:'error'
   item.completed_at=now()
