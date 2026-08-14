@@ -1,6 +1,8 @@
 const PHOTO_MIME_BY_EXTENSION=Object.freeze({
   '.jpeg':'image/jpeg',
   '.jpg':'image/jpeg',
+  '.heic':'image/heic',
+  '.heif':'image/heif',
   '.png':'image/png',
   '.webp':'image/webp'
 })
@@ -26,7 +28,7 @@ function effectivePhotoType(file){
   return PHOTO_MIME_BY_EXTENSION[extensionFor(file?.name)]||''
 }
 
-/** Accept non-empty JPEG, PNG and WebP File-like values without reading their data. */
+/** Accept non-empty JPEG, HEIC/HEIF, PNG and WebP File-like values without reading their data. */
 export function isSupportedPhotoFile(file){
   const size=Number(file?.size)
   return Number.isFinite(size)&&size>0&&Boolean(effectivePhotoType(file))

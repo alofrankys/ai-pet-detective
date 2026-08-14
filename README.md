@@ -10,7 +10,8 @@ VisionPsy-Nano-460M-Flash and VisionPsy-Nano-460M Full.
 
 ## What it does
 
-- camera, local video or local photo as the main visual area;
+- camera, local video or local JPEG, HEIC/HEIF, PNG or WebP photo as the main
+  visual area;
 - a navigable local queue when multiple photos are selected;
 - one manually selected frame per request;
 - three focused prompts: **Describe**, **Objects** and **Spatial**;

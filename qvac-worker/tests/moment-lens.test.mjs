@@ -41,10 +41,13 @@ const expectedPrompts={
 
 const photo=(name,type,size=12)=>({name,type,size})
 
-test('photo selection accepts only non-empty JPEG, PNG and WebP files',()=>{
+test('photo selection accepts only non-empty JPEG, HEIC/HEIF, PNG and WebP files',()=>{
   const fixtures=[
     [photo('dog.jpg','image/jpeg'),true],
     [photo('dog.jpeg','image/jpg'),true],
+    [photo('dog.heic','image/heic'),true],
+    [photo('dog.HEIF','image/heif'),true],
+    [photo('iphone.HEIC','application/octet-stream'),true],
     [photo('dog.png','image/png'),true],
     [photo('dog.webp','image/webp'),true],
     [photo('DOG.JPEG',''),true],
@@ -574,7 +577,7 @@ test('public interface accepts one or many local photos without a multi-image AP
   const html=fs.readFileSync(path.join(workerRoot,'public/index.html'),'utf8')
   const app=fs.readFileSync(path.join(workerRoot,'public/app.js'),'utf8')
   assert.match(html,/id="photoButton"/)
-  assert.match(html,/id="photoFiles"[^>]+type="file"[^>]+accept="image\/jpeg,image\/png,image\/webp"[^>]+multiple/)
+  assert.match(html,/id="photoFiles"[^>]+type="file"[^>]+accept="image\/jpeg,image\/png,image\/webp,image\/heic,image\/heif,\.heic,\.heif"[^>]+multiple/)
   for(const id of ['photoPreview','photoQueue','photoFilmstrip','previousPhoto','nextPhoto','photoCounter'])assert.match(html,new RegExp(`id=["']${id}["']`),id)
   assert.equal((app.match(/fetch\('\/api\/moment-lens'/g)||[]).length,1)
   assert.doesNotMatch(app,/Promise\.all\([^)]*photo|for\s*\([^)]*photo[^)]*\)\s*\{[^}]*fetch\('/s)
