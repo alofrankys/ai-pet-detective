@@ -16,8 +16,15 @@ VisionPsy-Nano-460M-Flash and VisionPsy-Nano-460M Full.
 - an explicit **Compare all photos** run that processes the local queue in
   order, one photo per request, while Flash and Full analyse that same photo
   simultaneously;
+- camera and video captures accumulate automatically as one **Captured
+  Moments** run: every press freezes and analyses one new frame exactly once,
+  while earlier frame results remain in the same KPI/export format as uploaded
+  photos;
 - progressive per-photo results, cumulative latency/token/stop KPIs,
   stop/resume and a JSON export;
+- persistent local **History** for descriptions, KPIs and imported post-hoc
+  judge results, including incomplete runs; exported run JSON can also be
+  imported into History;
 - one manually selected frame per request;
 - three focused prompts: **Describe**, **Objects** and **Spatial**;
 - each model's full generated natural-language response as returned, with model
@@ -71,6 +78,14 @@ action recognition, timeline construction or narrative generation. It never
 sends multiple images, contact sheets, neighbouring frames, detector data,
 timestamps or schemas to VisionPsy.
 
+Camera and uploaded-video use follows the same constraint. **Compare this
+moment** freezes the currently visible frame and sends only that JPEG. After the
+two model responses arrive, the frame is added to the current Captured Moments
+run without a second inference. **Compare another moment** returns to the live
+camera or video so the user can choose a different frame. Two, three or four
+such choices therefore produce a reviewable multi-frame demo while each
+VisionPsy request remains strictly single-image.
+
 ### Batch comparison and judge results
 
 The batch view is designed for a clear demo rather than an official benchmark.
@@ -79,8 +94,8 @@ time and output tokens, plus completion/error and 256-token-limit counts. The us
 stop safely, resume from the interrupted photo, and export the accumulated JSON.
 
 Studio does not call a cloud judge. Its optional **Import judge report** control
-only reads a previously generated blind evaluation JSON and labels those scores
-as **precomputed**. Matching is by original filename and judge aggregates include
+only reads a previously generated post-hoc evaluation JSON. Matching is by
+original filename and judge aggregates include
 only photos completed in the current run. The report can be imported before
 pressing **Compare all photos**, so matching per-photo scores and cumulative
 averages appear progressively as the local queue advances. This keeps the public

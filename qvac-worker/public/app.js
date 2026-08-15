@@ -6,6 +6,7 @@ import {
   selectPhotoIndex
 } from './photo-selection.js'
 import {
+  appendBatchItem,
   createBatchSession,
   finishBatchSession,
   judgeCaseForItem,
@@ -39,6 +40,9 @@ const photoFilmstrip=document.getElementById('photoFilmstrip')
 const previousPhoto=document.getElementById('previousPhoto')
 const nextPhoto=document.getElementById('nextPhoto')
 const photoCounterOutput=document.getElementById('photoCounter')
+const captureQueue=document.getElementById('captureQueue')
+const captureFilmstrip=document.getElementById('captureFilmstrip')
+const captureCounter=document.getElementById('captureCounter')
 const sourceBadge=document.getElementById('sourceBadge')
 const languageSelect=document.getElementById('languageSelect')
 const statusDot=document.getElementById('statusDot')
@@ -51,6 +55,9 @@ const analysingTitle=document.getElementById('momentAnalysingTitle')
 const comparisonResults=document.getElementById('comparisonResults')
 const tryAgainButton=document.getElementById('momentTryAgainButton')
 const batchWorkspace=document.getElementById('batchWorkspace')
+const batchEyebrow=document.getElementById('batchEyebrow')
+const batchTitle=document.getElementById('batchTitle')
+const batchIntro=document.getElementById('batchIntro')
 const batchStopButton=document.getElementById('batchStopButton')
 const batchExportButton=document.getElementById('batchExportButton')
 const judgeImportButton=document.getElementById('judgeImportButton')
@@ -103,8 +110,9 @@ const copy={
     momentSees:'VISIONPSY SEES',momentLocal:'Local · offline',momentTryAgain:'Compare another moment',momentUnclear:'Unclear image — try another moment',momentError:'This model could not analyse the image.',
     speedPath:'FLASH VISUAL PATH',qualityPath:'FULL VISUAL PATH',modelWaiting:'Waiting',modelQueued:'Queued',modelRunning:'Analysing',modelReady:'Ready',modelLimited:'Max reached',modelUnclear:'Unclear',modelError:'Unavailable',outputTokens:'output tokens',
     flashLooking:'Flash is looking…',qualityLooking:'Full is looking…',cameraSource:'Camera',fileSource:'Uploaded video',photoSource:'Photo',cameraError:'Camera unavailable',videoError:'This video cannot be opened in the browser.',photoError:'These photos cannot be opened. Choose JPEG, HEIC/HEIF, PNG, or WebP files.',
-    changeSource:'Change source',stageLabel:'Camera, video, or selected photo',selectedPhotos:'Selected photos',photoList:'Photos',momentPromptLabel:'Moment Lens prompt',cameraShort:'Camera',videoShort:'Video',photosShort:'Photos',previousPhoto:'Previous photo',nextPhoto:'Next photo',photoLabel:'Photo',
+    changeSource:'Change source',stageLabel:'Camera, video, or selected photo',selectedPhotos:'Selected photos',photoList:'Photos',capturedMoments:'Captured moments',momentPromptLabel:'Moment Lens prompt',cameraShort:'Camera',videoShort:'Video',photosShort:'Photos',previousPhoto:'Previous photo',nextPhoto:'Next photo',photoLabel:'Photo',
     batchCompare:'Compare all photos',batchResume:'Resume comparison',batchStop:'Stop',batchExport:'Export results',judgeImport:'Import judge report',batchEyebrow:'LOCAL MULTI-PHOTO RUN',batchTitle:'Batch Compare',batchIntro:'One photo at a time. Flash and Full run together; cumulative metrics update after every photo.',batchReady:'Ready to compare',batchRunning:'Comparing photos locally',batchStopped:'Stopped · results are safe',batchComplete:'Batch complete',judgePrecomputed:'Judge results are imported after the local VisionPsy run. No cloud judge runs inside Studio.',judgeNotLoaded:'No judge report loaded',judgeLoaded:'Post-hoc judge loaded',judgeInvalid:'Judge report not recognised',metricProgress:'PROGRESS',metricFlash:'FLASH',metricFull:'FULL',metricJudge:'JUDGE',metricCompleted:'completed',metricFailed:'failed',metricAverage:'avg',metricTotal:'total',metricTokens:'tokens',metricMaxReached:'max reached',metricNoJudge:'not loaded',metricMatched:'matched',batchPending:'Pending',batchItemRunning:'Analysing',batchItemComplete:'Complete',batchItemError:'Error',judgeTie:'Tie',judgeWinner:'winner',judgeScore:'score',batchLocalOnly:'Local VisionPsy run',
+    capturedEyebrow:'CAMERA / VIDEO MOMENT RUN',capturedTitle:'Captured Moments',capturedIntro:'Each frozen frame is analysed once and joins this run automatically. KPIs, export, judge and history use the same multi-photo format.',capturedRunning:'Analysing this frozen frame locally',capturedComplete:'Captured moments saved',capturedReady:'Ready for another moment',historyFrames:'frames',
     privacyNote:'Same selected image · Same prompt · Greedy · 256 max output tokens · Q4_K_M · 100% local.'
   },
   it:{
@@ -115,8 +123,9 @@ const copy={
     momentSees:'VISIONPSY VEDE',momentLocal:'Locale · offline',momentTryAgain:'Confronta un altro momento',momentUnclear:'Immagine poco chiara — prova un altro momento',momentError:'Questo modello non ha potuto analizzare l’immagine.',
     speedPath:'PERCORSO VISIVO FLASH',qualityPath:'PERCORSO VISIVO FULL',modelWaiting:'In attesa',modelQueued:'In coda',modelRunning:'Analisi',modelReady:'Pronto',modelLimited:'Limite raggiunto',modelUnclear:'Poco chiaro',modelError:'Non disponibile',outputTokens:'token di output',
     flashLooking:'Flash sta osservando…',qualityLooking:'Full sta osservando…',cameraSource:'Fotocamera',fileSource:'Video caricato',photoSource:'Foto',cameraError:'Fotocamera non disponibile',videoError:'Questo video non può essere aperto nel browser.',photoError:'Queste foto non possono essere aperte. Scegli file JPEG, HEIC/HEIF, PNG o WebP.',
-    changeSource:'Cambia sorgente',stageLabel:'Fotocamera, video o foto selezionata',selectedPhotos:'Foto selezionate',photoList:'Foto',momentPromptLabel:'Prompt di Moment Lens',cameraShort:'Fotocamera',videoShort:'Video',photosShort:'Foto',previousPhoto:'Foto precedente',nextPhoto:'Foto successiva',photoLabel:'Foto',
+    changeSource:'Cambia sorgente',stageLabel:'Fotocamera, video o foto selezionata',selectedPhotos:'Foto selezionate',photoList:'Foto',capturedMoments:'Momenti catturati',momentPromptLabel:'Prompt di Moment Lens',cameraShort:'Fotocamera',videoShort:'Video',photosShort:'Foto',previousPhoto:'Foto precedente',nextPhoto:'Foto successiva',photoLabel:'Foto',
     batchCompare:'Confronta tutte le foto',batchResume:'Riprendi confronto',batchStop:'Ferma',batchExport:'Esporta risultati',judgeImport:'Importa report judge',batchEyebrow:'ANALISI MULTI-FOTO LOCALE',batchTitle:'Batch Compare',batchIntro:'Una foto alla volta. Flash e Full lavorano insieme; i KPI cumulativi si aggiornano dopo ogni foto.',batchReady:'Pronto al confronto',batchRunning:'Confronto locale in corso',batchStopped:'Fermato · risultati salvati',batchComplete:'Batch completato',judgePrecomputed:'I risultati del judge vengono importati dopo l’analisi locale VisionPsy. Nessun judge cloud viene eseguito nella Studio.',judgeNotLoaded:'Nessun report judge caricato',judgeLoaded:'Judge post-hoc caricato',judgeInvalid:'Report judge non riconosciuto',metricProgress:'AVANZAMENTO',metricFlash:'FLASH',metricFull:'FULL',metricJudge:'JUDGE',metricCompleted:'completate',metricFailed:'errori',metricAverage:'media',metricTotal:'totale',metricTokens:'token',metricMaxReached:'limite raggiunto',metricNoJudge:'non caricato',metricMatched:'associate',batchPending:'In attesa',batchItemRunning:'Analisi',batchItemComplete:'Completa',batchItemError:'Errore',judgeTie:'Pareggio',judgeWinner:'vincitore',judgeScore:'punteggio',batchLocalOnly:'Analisi VisionPsy locale',
+    capturedEyebrow:'RUN DI MOMENTI DA CAMERA / VIDEO',capturedTitle:'Momenti catturati',capturedIntro:'Ogni fermo immagine viene analizzato una volta e aggiunto automaticamente al run. KPI, export, judge e storico usano lo stesso formato multi-foto.',capturedRunning:'Analisi locale del fermo immagine',capturedComplete:'Momenti catturati salvati',capturedReady:'Pronto per un altro momento',historyFrames:'fotogrammi',
     privacyNote:'Stessa immagine selezionata · Stesso prompt · Greedy · Massimo 256 token di output · Q4_K_M · 100% locale.'
   }
 }
@@ -129,6 +138,7 @@ let photoSelection=createPhotoSelection([])
 let photoDecodeToken=0
 let activePhotoFrame=null
 const thumbnailObjectUrls=new Set()
+let capturedMoments=[]
 let sourceReady=false
 let sourceLoading=false
 let modelsReady=false
@@ -332,11 +342,19 @@ function renderBatchUI(){
     batchResultsList.replaceChildren()
     return
   }
+  const captured=batchSession.source_mode==='captured_moments'
+  batchEyebrow.textContent=t(captured?'capturedEyebrow':'batchEyebrow')
+  batchTitle.textContent=t(captured?'capturedTitle':'batchTitle')
+  batchIntro.textContent=t(captured?'capturedIntro':'batchIntro')
   batchWorkspace.hidden=false
   const summary=summarizeBatchSession(batchSession,batchJudgeReport)
   batchProgressText.textContent=`${summary.processed} / ${summary.total}`
   batchProgressBar.style.width=`${summary.total?Math.round(summary.processed/summary.total*100):0}%`
-  batchProgressStatus.textContent=batchActive?t('batchRunning'):batchSession.completed_at?t('batchComplete'):batchSession.stopped?t('batchStopped'):t('batchReady')
+  const hasRunning=batchSession.items.some(item=>item.status==='running')
+  const runningKey=captured?'capturedRunning':'batchRunning'
+  const completeKey=captured?'capturedComplete':'batchComplete'
+  const readyKey=captured?'capturedReady':'batchReady'
+  batchProgressStatus.textContent=batchActive||hasRunning?t(runningKey):batchSession.completed_at?t(completeKey):batchSession.stopped?t('batchStopped'):t(readyKey)
   batchMetrics.replaceChildren()
   appendBatchMetric(t('metricProgress'),`${summary.processed}/${summary.total}`,`${summary.completed} ${t('metricCompleted')} · ${summary.failed} ${t('metricFailed')}`)
   for(const variant of ['flash','quality']){
@@ -434,7 +452,8 @@ function renderHistoryDetail(record,index){
   eyebrow.className='eyebrow'
   eyebrow.textContent=`MULTI-RUN ${historyRunNumber(index)}`
   const title=document.createElement('h3')
-  title.textContent=`${summary.total} ${t('historyPhotos')} · ${String(report.preset||'describe')}`
+  const itemNoun=t(report.source_mode==='captured_moments'?'historyFrames':'historyPhotos')
+  title.textContent=`${summary.total} ${itemNoun} · ${String(report.preset||'describe')}`
   const date=document.createElement('p')
   date.textContent=formattedHistoryDate(record.completed_at||record.created_at)
   headingText.append(eyebrow,title,date)
@@ -481,7 +500,8 @@ function renderHistory(){
     const date=document.createElement('span')
     date.textContent=formattedHistoryDate(record.completed_at||record.created_at)
     const detail=document.createElement('small')
-    detail.textContent=`${record.photo_count} ${t('historyPhotos')} · ${record.preset}`
+    const itemNoun=t(record.report.source_mode==='captured_moments'?'historyFrames':'historyPhotos')
+    detail.textContent=`${record.photo_count} ${itemNoun} · ${record.preset}`
     button.append(title,date,detail)
     historyRunList.append(button)
   })
@@ -584,6 +604,54 @@ function clearThumbnailObjectUrls(){
   thumbnailObjectUrls.clear()
 }
 
+function clearCapturedMoments(){
+  for(const moment of capturedMoments)URL.revokeObjectURL(moment.url)
+  capturedMoments=[]
+  captureFilmstrip.replaceChildren()
+  captureCounter.textContent='0'
+  captureQueue.hidden=true
+}
+
+function capturedMomentName(index){
+  const number=String(index+1).padStart(2,'0')
+  const source=currentSource?.kind==='camera'?t('cameraSource'):currentSource?.title||t('fileSource')
+  return `${source} · moment ${number}.jpg`
+}
+
+function renderCapturedMoments(){
+  captureFilmstrip.replaceChildren(...capturedMoments.map((moment,index)=>{
+    const card=document.createElement('div')
+    card.className='capture-moment'
+    card.setAttribute('role','listitem')
+    card.setAttribute('aria-label',moment.name)
+    const thumbnail=document.createElement('img')
+    thumbnail.src=moment.url
+    thumbnail.alt=''
+    const number=document.createElement('span')
+    number.textContent=String(index+1)
+    card.append(thumbnail,number)
+    return card
+  }))
+  captureCounter.textContent=String(capturedMoments.length)
+  captureQueue.hidden=!capturedMoments.length
+}
+
+function stageCapturedMoment(jpeg){
+  if(!batchSession||batchSession.source_mode!=='captured_moments'||batchSession.preset!==preset){
+    batchSession=createBatchSession([],{preset,maxTokens:256,sourceMode:'captured_moments'})
+    batchJudgeReport=null
+  }
+  const moment={name:capturedMomentName(capturedMoments.length),type:'image/jpeg',size:jpeg.size,blob:jpeg,url:URL.createObjectURL(jpeg)}
+  capturedMoments.push(moment)
+  const item=appendBatchItem(batchSession,moment)
+  markBatchStarted(batchSession)
+  markBatchItemRunning(batchSession,item.index)
+  ensureBatchHistoryId()
+  renderCapturedMoments()
+  renderBatchUI()
+  return {index:item.index,moment}
+}
+
 function clearVideoSource(){
   if(video.srcObject){video.srcObject.getTracks().forEach(track=>track.stop());video.srcObject=null}
   if(objectUrl){URL.revokeObjectURL(objectUrl);objectUrl=null}
@@ -617,6 +685,7 @@ function stopCurrentSource(){
   resumeAfterTry=false
   clearVideoSource()
   clearPhotoSelection()
+  clearCapturedMoments()
   currentSource=null
   sourceReady=false
   sourceBadge.hidden=true
@@ -1013,13 +1082,29 @@ async function analyseCurrentMoment(){
   analyseButton.hidden=true
   prepareComparison()
   setControlsDisabled()
+  let stagedCapture=null
   try{
     const jpeg=await frozenJpeg()
     if(!jpeg)throw new Error('Could not freeze this frame')
     freezeCanvas.classList.add('visible')
-    await compareJpeg(jpeg,activeController.signal)
+    if(currentSource?.kind==='camera'||currentSource?.kind==='video')stagedCapture=stageCapturedMoment(jpeg)
+    const [stream,jpegSha256]=await Promise.all([compareJpeg(jpeg,activeController.signal),sha256Blob(jpeg)])
+    if(stagedCapture){
+      recordBatchItem(batchSession,stagedCapture.index,{status:'complete',results:currentModelResults(),totalMs:stream.totalMs,jpegSha256,sourceSha256:jpegSha256})
+      finishBatchSession(batchSession)
+      renderBatchUI()
+      await persistCurrentBatchHistory()
+    }
   }catch{
-    if(token===requestToken)markIncompleteModelsAsError()
+    if(token===requestToken){
+      markIncompleteModelsAsError()
+      if(stagedCapture){
+        recordBatchItem(batchSession,stagedCapture.index,{status:'error',results:currentModelResults()})
+        finishBatchSession(batchSession)
+        renderBatchUI()
+        await persistCurrentBatchHistory()
+      }
+    }
   }finally{
     if(token===requestToken){
       activeController=null
@@ -1087,6 +1172,7 @@ presetButtons.forEach(button=>button.addEventListener('click',()=>{
   preset=button.dataset.momentPreset
   presetButtons.forEach(item=>{const active=item===button;item.classList.toggle('active',active);item.setAttribute('aria-pressed',String(active))})
   if(changed&&batchSession){
+    if(batchSession.source_mode==='captured_moments')clearCapturedMoments()
     resetBatchSession()
     if(currentSource?.kind==='photo'&&photoSelection.items.length>1){
       batchSession=createBatchSession(photoSelection.items,{preset,maxTokens:256})

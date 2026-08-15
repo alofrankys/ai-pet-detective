@@ -56,6 +56,10 @@
         <button id="nextPhoto" class="photo-nav" aria-label="Next photo" data-i18n-aria="nextPhoto">›</button>
         <output id="photoCounter" class="photo-counter" aria-live="polite"></output>
       </nav>
+      <section id="captureQueue" class="capture-queue" hidden aria-label="Captured moments" data-i18n-aria="capturedMoments">
+        <div class="capture-queue-head"><span data-i18n="capturedMoments">Captured moments</span><output id="captureCounter" aria-live="polite">0</output></div>
+        <div id="captureFilmstrip" class="capture-filmstrip" role="list"></div>
+      </section>
     </div>
 
     <aside class="lens-panel">
@@ -127,9 +131,9 @@
   <section id="batchWorkspace" class="batch-workspace" hidden aria-labelledby="batchTitle">
     <header class="batch-header">
       <div>
-        <span class="eyebrow" data-i18n="batchEyebrow">LOCAL MULTI-PHOTO RUN</span>
+        <span id="batchEyebrow" class="eyebrow" data-i18n="batchEyebrow">LOCAL MULTI-PHOTO RUN</span>
         <h2 id="batchTitle" data-i18n="batchTitle">Batch Compare</h2>
-        <p data-i18n="batchIntro">One photo at a time. Flash and Full run together; cumulative metrics update after every photo.</p>
+        <p id="batchIntro" data-i18n="batchIntro">One photo at a time. Flash and Full run together; cumulative metrics update after every photo.</p>
       </div>
       <div class="batch-header-actions">
         <button id="batchStopButton" class="batch-stop" hidden data-i18n="batchStop">Stop</button>

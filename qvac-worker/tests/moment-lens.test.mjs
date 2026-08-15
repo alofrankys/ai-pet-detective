@@ -32,6 +32,7 @@ import {
   selectPhotoIndex
 } from '../public/photo-selection.js'
 import {
+  appendBatchItem,
   createBatchSession,
   finishBatchSession,
   markBatchItemRunning,
@@ -214,6 +215,23 @@ test('batch session preserves photo order without retaining image bytes or start
   assert.equal('file' in session.items[0],false)
   assert.equal('body' in session.items[0],false)
   assert.equal('data' in session.items[0],false)
+})
+
+test('camera and video frames append to one batch without rebuilding earlier results',()=>{
+  const session=createBatchSession([],{preset:'describe',sourceMode:'captured_moments',now:()=> '2026-08-15T12:00:00.000Z'})
+  const first=appendBatchItem(session,{name:'Camera · moment 01.jpg',type:'image/jpeg',size:200})
+  markBatchStarted(session)
+  markBatchItemRunning(session,first.index)
+  recordBatchItem(session,first.index,{results:[{variant:'flash',status:'clear',answer:'A dog.'}]})
+  finishBatchSession(session)
+  assert.ok(session.completed_at)
+  const second=appendBatchItem(session,{name:'Camera · moment 02.jpg',type:'image/jpeg',size:220})
+  assert.equal(session.completed_at,null)
+  assert.equal(session.source_mode,'captured_moments')
+  assert.deepEqual(session.items.map(item=>item.filename),['Camera · moment 01.jpg','Camera · moment 02.jpg'])
+  assert.equal(session.items[0].results[0].answer,'A dog.')
+  assert.equal(second.index,1)
+  assert.equal('blob' in session.items[1],false)
 })
 
 test('batch metrics update cumulatively and keep Flash and Full independent',()=>{
@@ -877,6 +895,19 @@ test('multi-photo UI exposes explicit progressive compare, stop, export and prec
   assert.match(app,/normalizePrecomputedJudgeReport/)
   assert.match(app,/serializableBatchReport/)
   assert.doesNotMatch(app,/\/api\/(?:batch|judge|openai|evaluation)/i)
+  assert.equal((app.match(/fetch\('\/api\/moment-lens'/g)||[]).length,1)
+})
+
+test('camera and video comparisons accumulate frozen frames in the same KPI and history pipeline',()=>{
+  const html=fs.readFileSync(path.join(workerRoot,'public/index.html'),'utf8')
+  const app=fs.readFileSync(path.join(workerRoot,'public/app.js'),'utf8')
+  for(const id of ['captureQueue','captureFilmstrip','captureCounter'])assert.match(html,new RegExp(`id=["']${id}["']`),id)
+  assert.match(app,/currentSource\?\.kind==='camera'\|\|currentSource\?\.kind==='video'/)
+  assert.match(app,/stagedCapture=stageCapturedMoment\(jpeg\)/)
+  assert.match(app,/appendBatchItem\(batchSession,moment\)/)
+  assert.match(app,/sourceMode:'captured_moments'/)
+  assert.match(app,/recordBatchItem\(batchSession,stagedCapture\.index/)
+  assert.match(app,/persistCurrentBatchHistory\(\)/)
   assert.equal((app.match(/fetch\('\/api\/moment-lens'/g)||[]).length,1)
 })
 

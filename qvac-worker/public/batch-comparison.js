@@ -36,8 +36,8 @@ function modelSummary(items,variant){
   }
 }
 
-export function createBatchSession(photoItems,{preset='describe',maxTokens=256,now=()=>new Date().toISOString()}={}){
-  const items=Array.from(photoItems||[]).map((item,index)=>({
+function batchItem(item,index){
+  return {
     index,
     filename:boundedText(item?.name||item?.file?.name||`Photo ${index+1}`,512),
     source_type:boundedText(item?.type||item?.file?.type,100),
@@ -49,11 +49,18 @@ export function createBatchSession(photoItems,{preset='describe',maxTokens=256,n
     completed_at:null,
     total_ms:null,
     results:[]
+  }
+}
+
+export function createBatchSession(photoItems,{preset='describe',maxTokens=256,sourceMode='photos',now=()=>new Date().toISOString()}={}){
+  const items=Array.from(photoItems||[]).map((item,index)=>({
+    ...batchItem(item,index)
   }))
   return {
     version:1,
     mode:'moment_lens_batch',
     execution:'local',
+    source_mode:boundedText(sourceMode,40)||'photos',
     judge_mode:'precomputed_import_only',
     preset,
     sampling:{max_tokens:Number(maxTokens)||256,temperature:0},
@@ -63,6 +70,16 @@ export function createBatchSession(photoItems,{preset='describe',maxTokens=256,n
     stopped:false,
     items
   }
+}
+
+/** Add one newly frozen camera/video frame without rebuilding or rerunning earlier items. */
+export function appendBatchItem(session,item){
+  if(!session||!Array.isArray(session.items))throw new TypeError('A batch session is required')
+  const appended=batchItem(item,session.items.length)
+  session.items.push(appended)
+  session.completed_at=null
+  session.stopped=false
+  return appended
 }
 
 export function nextPendingBatchIndex(session){
