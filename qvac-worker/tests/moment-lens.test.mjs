@@ -43,6 +43,7 @@ import {
   serializableBatchReport,
   summarizeBatchSession
 } from '../public/batch-comparison.js'
+import {normalizeHistoryReport} from '../public/history-store.js'
 
 const here=path.dirname(fileURLToPath(import.meta.url))
 const workerRoot=path.resolve(here,'..')
@@ -265,7 +266,7 @@ test('a stopped batch requeues the interrupted photo and resumes from it',()=>{
   assert.equal(nextPendingBatchIndex(session),0)
 })
 
-test('precomputed blind judge reports are imported safely and counted only for completed photos',()=>{
+test('post-hoc judge reports are imported safely and counted only for completed photos',()=>{
   const report=normalizePrecomputedJudgeReport({
     judge:{model:'gpt-5.6-sol'},
     cases:[
@@ -298,6 +299,22 @@ test('batch export labels the judge as precomputed import only and contains no l
   assert.equal(exported.judge.source,'precomputed')
   assert.ok(Array.isArray(exported.judge.cases))
   assert.equal(exported.judge.cases[0].filename,'one.jpg')
+})
+
+test('history normalization preserves complete descriptions, KPIs and judge data with a stable id',()=>{
+  const report={
+    mode:'moment_lens_batch',created_at:'2026-08-15T10:00:00.000Z',preset:'describe',
+    items:[{index:0,filename:'one.heic',status:'complete',results:[{variant:'flash',answer:'A complete answer.',ttft_ms:30,tokens_per_second:100,output_tokens:12}]}],
+    summary:{total:1,processed:1},judge:{label:'Post-hoc judge',cases:[{filename:'one.heic',winner:'flash'}]}
+  }
+  const first=normalizeHistoryReport(report,{now:()=> '2026-08-15T11:00:00.000Z'})
+  const second=normalizeHistoryReport(report,{now:()=> '2026-08-15T12:00:00.000Z'})
+  assert.equal(first.id,second.id)
+  assert.equal(first.photo_count,1)
+  assert.equal(first.report.items[0].results[0].answer,'A complete answer.')
+  assert.equal(first.report.items[0].results[0].tokens_per_second,100)
+  assert.equal(first.report.judge.cases[0].winner,'flash')
+  assert.notStrictEqual(first.report,report)
 })
 
 test('Moment Lens uses the three exact single-image prompts',()=>{
@@ -764,6 +781,7 @@ test('Studio exposes only the Moment Lens analysis route',()=>{
   assert.match(server,/\/api\/moment-lens/)
   assert.match(server,/photo-selection\.js/)
   assert.match(server,/batch-comparison\.js/)
+  assert.match(server,/history-store\.js/)
   assert.doesNotMatch(server,/\/api\/(?:detect|pose|interpret|session-summary|finalize-session|deep|youtube)/)
   assert.doesNotMatch(server,/contact[_ -]?sheet|detectorHealth|startDetector|NarrativeEngine|analyseDeepWindow/i)
 })
@@ -801,6 +819,20 @@ test('public interface exposes two polished result cards and no Live or Deep mod
   assert.match(html,/Same selected image/)
   assert.equal((html.match(/Greedy · max 256/g)||[]).length,2)
   assert.doesNotMatch(html,/Live Studio|Deep Analysis|YouTube URL|data-studio-mode|sessionModal/)
+})
+
+test('persistent run history survives refreshes and exposes descriptions, KPIs and post-hoc judge data',()=>{
+  const html=fs.readFileSync(path.join(workerRoot,'public/index.html'),'utf8')
+  const app=fs.readFileSync(path.join(workerRoot,'public/app.js'),'utf8')
+  const store=fs.readFileSync(path.join(workerRoot,'public/history-store.js'),'utf8')
+  for(const id of ['historyButton','historyCount','historyOverlay','historyRunList','historyDetail','historyImportButton','historyRunFile'])assert.match(html,new RegExp(`id=["']${id}["']`),id)
+  assert.match(store,/indexedDb\.open\(DATABASE_NAME,DATABASE_VERSION\)/)
+  assert.match(store,/objectStore\(STORE_NAME\)\.put\(record\)/)
+  assert.match(app,/persistCurrentBatchHistory\(\)/)
+  assert.match(app,/saveHistoryReport\(report\)/)
+  assert.match(app,/listHistoryReports\(\)/)
+  assert.match(app,/renderBatchResult\(item,false,judgeReport\)/)
+  assert.doesNotMatch(app,/historyDetail\.innerHTML/)
 })
 
 test('Studio presentation uses a native-style light shell with accessible model accents',()=>{

@@ -18,6 +18,7 @@ import {
   serializableBatchReport,
   summarizeBatchSession
 } from './batch-comparison.js'
+import {listHistoryReports,normalizeHistoryReport,saveHistoryReport} from './history-store.js'
 
 const video=document.getElementById('camera')
 const photoPreview=document.getElementById('photoPreview')
@@ -62,6 +63,15 @@ const judgeNotice=document.getElementById('judgeNotice')
 const judgeImportState=document.getElementById('judgeImportState')
 const batchResultsList=document.getElementById('batchResultsList')
 const presetButtons=[...document.querySelectorAll('[data-moment-preset]')]
+const historyButton=document.getElementById('historyButton')
+const historyCount=document.getElementById('historyCount')
+const historyOverlay=document.getElementById('historyOverlay')
+const historyCloseButton=document.getElementById('historyCloseButton')
+const historyImportButton=document.getElementById('historyImportButton')
+const historyRunFile=document.getElementById('historyRunFile')
+const historyRunList=document.getElementById('historyRunList')
+const historyDetail=document.getElementById('historyDetail')
+const historyEmpty=document.getElementById('historyEmpty')
 
 const modelElements=Object.freeze({
   flash:{
@@ -86,7 +96,7 @@ const modelElements=Object.freeze({
 
 const copy={
   en:{
-    language:'UI language',engineStarting:'Starting Q4 models',engineReady:'2 Q4 models · local',engineUnavailable:'VisionPsy models unavailable',
+    language:'UI language',engineStarting:'Starting Q4 models',engineReady:'2 Q4 models · local',engineUnavailable:'VisionPsy models unavailable',history:'History',historyEyebrow:'PERSISTENT LOCAL ARCHIVE',historyTitle:'Run History',historyIntro:'Descriptions, KPIs and imported post-hoc judge reports survive page refreshes.',historyImport:'Import run',historyClose:'Close history',historySavedRuns:'Saved runs',historyEmptyTitle:'No saved runs yet',historyEmptyCopy:'Complete a multi-photo comparison or import an exported Moment Lens batch.',historyPhotos:'photos',historyImported:'Imported run',historySaved:'Saved locally',
     heroTitle:'One image. Two visual paths.',heroCopy:'Use the camera, open a video, or choose one or more photos.',startCamera:'Start camera',openVideo:'Open video',openPhotos:'Open photos',
     momentIntro:'One image and one open prompt. Flash and Full answer in their own words with the same deterministic greedy decode.',momentGuide:'Aim the camera, pause a video, or select a photo to inspect.',momentGuideReady:'Choose the clearest image, then compare exactly this moment.',photoGuideReady:'Only this selected photo will be compared. Other photos stay local in the queue.',
     momentDescribe:'Describe',momentObjects:'Objects',momentSpatial:'Spatial',momentAnalyse:'Compare this moment',momentLooking:'Both models are looking…',momentOneFrame:'Same image · same prompt · simultaneous local inference',
@@ -94,11 +104,11 @@ const copy={
     speedPath:'FLASH VISUAL PATH',qualityPath:'FULL VISUAL PATH',modelWaiting:'Waiting',modelQueued:'Queued',modelRunning:'Analysing',modelReady:'Ready',modelLimited:'Max reached',modelUnclear:'Unclear',modelError:'Unavailable',outputTokens:'output tokens',
     flashLooking:'Flash is looking…',qualityLooking:'Full is looking…',cameraSource:'Camera',fileSource:'Uploaded video',photoSource:'Photo',cameraError:'Camera unavailable',videoError:'This video cannot be opened in the browser.',photoError:'These photos cannot be opened. Choose JPEG, HEIC/HEIF, PNG, or WebP files.',
     changeSource:'Change source',stageLabel:'Camera, video, or selected photo',selectedPhotos:'Selected photos',photoList:'Photos',momentPromptLabel:'Moment Lens prompt',cameraShort:'Camera',videoShort:'Video',photosShort:'Photos',previousPhoto:'Previous photo',nextPhoto:'Next photo',photoLabel:'Photo',
-    batchCompare:'Compare all photos',batchResume:'Resume comparison',batchStop:'Stop',batchExport:'Export results',judgeImport:'Import judge report',batchEyebrow:'LOCAL MULTI-PHOTO RUN',batchTitle:'Batch Compare',batchIntro:'One photo at a time. Flash and Full run together; cumulative metrics update after every photo.',batchReady:'Ready to compare',batchRunning:'Comparing photos locally',batchStopped:'Stopped · results are safe',batchComplete:'Batch complete',judgePrecomputed:'Judge results are imported from a precomputed blind report. No cloud judge runs inside Studio.',judgeNotLoaded:'No judge report loaded',judgeLoaded:'Precomputed judge loaded',judgeInvalid:'Judge report not recognised',metricProgress:'PROGRESS',metricFlash:'FLASH',metricFull:'FULL',metricJudge:'JUDGE',metricCompleted:'completed',metricFailed:'failed',metricAverage:'avg',metricTotal:'total',metricTokens:'tokens',metricMaxReached:'max reached',metricNoJudge:'not loaded',metricMatched:'matched',batchPending:'Pending',batchItemRunning:'Analysing',batchItemComplete:'Complete',batchItemError:'Error',judgeTie:'Tie',judgeWinner:'winner',judgeScore:'score',batchLocalOnly:'Local VisionPsy run',
+    batchCompare:'Compare all photos',batchResume:'Resume comparison',batchStop:'Stop',batchExport:'Export results',judgeImport:'Import judge report',batchEyebrow:'LOCAL MULTI-PHOTO RUN',batchTitle:'Batch Compare',batchIntro:'One photo at a time. Flash and Full run together; cumulative metrics update after every photo.',batchReady:'Ready to compare',batchRunning:'Comparing photos locally',batchStopped:'Stopped · results are safe',batchComplete:'Batch complete',judgePrecomputed:'Judge results are imported after the local VisionPsy run. No cloud judge runs inside Studio.',judgeNotLoaded:'No judge report loaded',judgeLoaded:'Post-hoc judge loaded',judgeInvalid:'Judge report not recognised',metricProgress:'PROGRESS',metricFlash:'FLASH',metricFull:'FULL',metricJudge:'JUDGE',metricCompleted:'completed',metricFailed:'failed',metricAverage:'avg',metricTotal:'total',metricTokens:'tokens',metricMaxReached:'max reached',metricNoJudge:'not loaded',metricMatched:'matched',batchPending:'Pending',batchItemRunning:'Analysing',batchItemComplete:'Complete',batchItemError:'Error',judgeTie:'Tie',judgeWinner:'winner',judgeScore:'score',batchLocalOnly:'Local VisionPsy run',
     privacyNote:'Same selected image · Same prompt · Greedy · 256 max output tokens · Q4_K_M · 100% local.'
   },
   it:{
-    language:'Lingua UI',engineStarting:'Avvio modelli Q4',engineReady:'2 modelli Q4 · locali',engineUnavailable:'Modelli VisionPsy non disponibili',
+    language:'Lingua UI',engineStarting:'Avvio modelli Q4',engineReady:'2 modelli Q4 · locali',engineUnavailable:'Modelli VisionPsy non disponibili',history:'Storico',historyEyebrow:'ARCHIVIO LOCALE PERSISTENTE',historyTitle:'Storico analisi',historyIntro:'Descrizioni, KPI e judge post-hoc importati restano disponibili dopo il refresh.',historyImport:'Importa run',historyClose:'Chiudi storico',historySavedRuns:'Run salvati',historyEmptyTitle:'Nessun run salvato',historyEmptyCopy:'Completa un confronto multi-foto oppure importa un batch Moment Lens esportato.',historyPhotos:'foto',historyImported:'Run importato',historySaved:'Salvato in locale',
     heroTitle:'Un’immagine. Due percorsi visivi.',heroCopy:'Usa la fotocamera, apri un video oppure scegli una o più foto.',startCamera:'Avvia fotocamera',openVideo:'Apri video',openPhotos:'Apri foto',
     momentIntro:'Un’immagine e un prompt aperto. Flash e Full rispondono con parole proprie usando la stessa decodifica greedy deterministica.',momentGuide:'Inquadra, metti in pausa un video oppure seleziona una foto.',momentGuideReady:'Scegli l’immagine più chiara, poi confronta esattamente questo momento.',photoGuideReady:'Verrà confrontata soltanto questa foto. Le altre restano locali nella coda.',
     momentDescribe:'Descrivi',momentObjects:'Oggetti',momentSpatial:'Spaziale',momentAnalyse:'Confronta questo momento',momentLooking:'Entrambi i modelli stanno osservando…',momentOneFrame:'Stessa immagine · stesso prompt · inferenza locale simultanea',
@@ -106,7 +116,7 @@ const copy={
     speedPath:'PERCORSO VISIVO FLASH',qualityPath:'PERCORSO VISIVO FULL',modelWaiting:'In attesa',modelQueued:'In coda',modelRunning:'Analisi',modelReady:'Pronto',modelLimited:'Limite raggiunto',modelUnclear:'Poco chiaro',modelError:'Non disponibile',outputTokens:'token di output',
     flashLooking:'Flash sta osservando…',qualityLooking:'Full sta osservando…',cameraSource:'Fotocamera',fileSource:'Video caricato',photoSource:'Foto',cameraError:'Fotocamera non disponibile',videoError:'Questo video non può essere aperto nel browser.',photoError:'Queste foto non possono essere aperte. Scegli file JPEG, HEIC/HEIF, PNG o WebP.',
     changeSource:'Cambia sorgente',stageLabel:'Fotocamera, video o foto selezionata',selectedPhotos:'Foto selezionate',photoList:'Foto',momentPromptLabel:'Prompt di Moment Lens',cameraShort:'Fotocamera',videoShort:'Video',photosShort:'Foto',previousPhoto:'Foto precedente',nextPhoto:'Foto successiva',photoLabel:'Foto',
-    batchCompare:'Confronta tutte le foto',batchResume:'Riprendi confronto',batchStop:'Ferma',batchExport:'Esporta risultati',judgeImport:'Importa report judge',batchEyebrow:'ANALISI MULTI-FOTO LOCALE',batchTitle:'Batch Compare',batchIntro:'Una foto alla volta. Flash e Full lavorano insieme; i KPI cumulativi si aggiornano dopo ogni foto.',batchReady:'Pronto al confronto',batchRunning:'Confronto locale in corso',batchStopped:'Fermato · risultati salvati',batchComplete:'Batch completato',judgePrecomputed:'I risultati del judge provengono da un report cieco precomputato. Nessun judge cloud viene eseguito nella Studio.',judgeNotLoaded:'Nessun report judge caricato',judgeLoaded:'Judge precomputato caricato',judgeInvalid:'Report judge non riconosciuto',metricProgress:'AVANZAMENTO',metricFlash:'FLASH',metricFull:'FULL',metricJudge:'JUDGE',metricCompleted:'completate',metricFailed:'errori',metricAverage:'media',metricTotal:'totale',metricTokens:'token',metricMaxReached:'limite raggiunto',metricNoJudge:'non caricato',metricMatched:'associate',batchPending:'In attesa',batchItemRunning:'Analisi',batchItemComplete:'Completa',batchItemError:'Errore',judgeTie:'Pareggio',judgeWinner:'vincitore',judgeScore:'punteggio',batchLocalOnly:'Analisi VisionPsy locale',
+    batchCompare:'Confronta tutte le foto',batchResume:'Riprendi confronto',batchStop:'Ferma',batchExport:'Esporta risultati',judgeImport:'Importa report judge',batchEyebrow:'ANALISI MULTI-FOTO LOCALE',batchTitle:'Batch Compare',batchIntro:'Una foto alla volta. Flash e Full lavorano insieme; i KPI cumulativi si aggiornano dopo ogni foto.',batchReady:'Pronto al confronto',batchRunning:'Confronto locale in corso',batchStopped:'Fermato · risultati salvati',batchComplete:'Batch completato',judgePrecomputed:'I risultati del judge vengono importati dopo l’analisi locale VisionPsy. Nessun judge cloud viene eseguito nella Studio.',judgeNotLoaded:'Nessun report judge caricato',judgeLoaded:'Judge post-hoc caricato',judgeInvalid:'Report judge non riconosciuto',metricProgress:'AVANZAMENTO',metricFlash:'FLASH',metricFull:'FULL',metricJudge:'JUDGE',metricCompleted:'completate',metricFailed:'errori',metricAverage:'media',metricTotal:'totale',metricTokens:'token',metricMaxReached:'limite raggiunto',metricNoJudge:'non caricato',metricMatched:'associate',batchPending:'In attesa',batchItemRunning:'Analisi',batchItemComplete:'Completa',batchItemError:'Errore',judgeTie:'Pareggio',judgeWinner:'vincitore',judgeScore:'punteggio',batchLocalOnly:'Analisi VisionPsy locale',
     privacyNote:'Stessa immagine selezionata · Stesso prompt · Greedy · Massimo 256 token di output · Q4_K_M · 100% locale.'
   }
 }
@@ -134,6 +144,9 @@ let batchSession=null
 let batchJudgeReport=null
 let batchActive=false
 let batchStopRequested=false
+let historyRecords=[]
+let selectedHistoryId=null
+let historySaveQueue=Promise.resolve()
 const modelViews={
   flash:{phase:'waiting',result:null,startedAt:null,draft:'',liveTokens:0,ttftMs:null},
   quality:{phase:'waiting',result:null,startedAt:null,draft:'',liveTokens:0,ttftMs:null}
@@ -240,7 +253,7 @@ function batchStatusLabel(status){
   return t({running:'batchItemRunning',complete:'batchItemComplete',error:'batchItemError',skipped:'batchItemError'}[status]||'batchPending')
 }
 
-function appendBatchMetric(label,value,detail){
+function appendBatchMetric(label,value,detail,container=batchMetrics){
   const card=document.createElement('div')
   card.className='batch-metric'
   const labelElement=document.createElement('span')
@@ -250,7 +263,7 @@ function appendBatchMetric(label,value,detail){
   const detailElement=document.createElement('small')
   detailElement.textContent=detail
   card.append(labelElement,valueElement,detailElement)
-  batchMetrics.append(card)
+  container.append(card)
 }
 
 function batchResultAnswer(result){
@@ -259,8 +272,8 @@ function batchResultAnswer(result){
   return result?.status==='error'?t('momentError'):t('momentUnclear')
 }
 
-function renderBatchResult(item,isLatest){
-  const judge=judgeCaseForItem(batchJudgeReport,item)
+function renderBatchResult(item,isLatest,judgeReport=batchJudgeReport){
+  const judge=judgeCaseForItem(judgeReport,item)
   const details=document.createElement('details')
   details.className='batch-result'
   details.open=Boolean(isLatest||item.status==='running')
@@ -303,7 +316,7 @@ function renderBatchResult(item,isLatest){
     const judgeDetail=document.createElement('div')
     judgeDetail.className='batch-result-judge-detail'
     const heading=document.createElement('strong')
-    heading.textContent=`${batchJudgeReport.label} · Flash ${judge.flash_score} / Full ${judge.quality_score}`
+    heading.textContent=`${judgeReport.label} · Flash ${judge.flash_score} / Full ${judge.quality_score}`
     judgeDetail.append(heading)
     if(judge.rationale)judgeDetail.append(document.createTextNode(` — ${judge.rationale}`))
     body.append(judgeDetail)
@@ -355,6 +368,152 @@ function resetBatchSession(){
   batchMetrics.replaceChildren()
   batchResultsList.replaceChildren()
   judgeImportState.textContent=t('judgeNotLoaded')
+}
+
+function newHistoryId(){
+  const suffix=globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return `moment-run:${suffix}`
+}
+
+function ensureBatchHistoryId(){
+  if(batchSession&&!batchSession.history_id)batchSession.history_id=newHistoryId()
+  return batchSession?.history_id||null
+}
+
+function serializableJudgeToRuntime(value){
+  if(!value||!Array.isArray(value.cases))return null
+  return {
+    source:'precomputed',
+    label:String(value.label||'Post-hoc judge'),
+    judge_model:String(value.judge_model||'External judge'),
+    evaluation_mode:value.evaluation_mode?String(value.evaluation_mode):null,
+    imported_cases:value.cases.length,
+    cases:new Map(value.cases.map(item=>[item.filename,item]))
+  }
+}
+
+function historyRunNumber(index){return historyRecords.length-index}
+
+function formattedHistoryDate(value){
+  const date=new Date(value)
+  if(Number.isNaN(date.valueOf()))return String(value||'')
+  return new Intl.DateTimeFormat(language==='it'?'it-IT':'en-GB',{dateStyle:'medium',timeStyle:'short'}).format(date)
+}
+
+async function refreshHistoryRecords(){
+  try{historyRecords=await listHistoryReports()}
+  catch{historyRecords=[]}
+  historyCount.textContent=String(historyRecords.length)
+  if(selectedHistoryId&&!historyRecords.some(record=>record.id===selectedHistoryId))selectedHistoryId=null
+  if(!selectedHistoryId&&historyRecords.length)selectedHistoryId=historyRecords[0].id
+  renderHistory()
+}
+
+function persistCurrentBatchHistory(){
+  if(!batchSession||!batchSession.items.some(item=>item.status!=='pending'))return Promise.resolve()
+  ensureBatchHistoryId()
+  const report=serializableBatchReport(batchSession,batchJudgeReport)
+  historySaveQueue=historySaveQueue.catch(()=>{}).then(()=>saveHistoryReport(report)).then(()=>refreshHistoryRecords()).catch(()=>{})
+  return historySaveQueue
+}
+
+function historySummaryFor(record,judgeReport){
+  return record.report.summary||summarizeBatchSession(record.report,judgeReport)
+}
+
+function renderHistoryDetail(record,index){
+  historyDetail.replaceChildren()
+  if(!record)return
+  const report=record.report
+  const judgeReport=serializableJudgeToRuntime(report.judge)
+  const summary=historySummaryFor(record,judgeReport)
+  const heading=document.createElement('header')
+  heading.className='history-detail-head'
+  const headingText=document.createElement('div')
+  const eyebrow=document.createElement('span')
+  eyebrow.className='eyebrow'
+  eyebrow.textContent=`MULTI-RUN ${historyRunNumber(index)}`
+  const title=document.createElement('h3')
+  title.textContent=`${summary.total} ${t('historyPhotos')} · ${String(report.preset||'describe')}`
+  const date=document.createElement('p')
+  date.textContent=formattedHistoryDate(record.completed_at||record.created_at)
+  headingText.append(eyebrow,title,date)
+  const badge=document.createElement('span')
+  badge.className='history-detail-badge'
+  badge.textContent=t('historySaved')
+  heading.append(headingText,badge)
+
+  const metrics=document.createElement('div')
+  metrics.className='batch-metrics'
+  appendBatchMetric(t('metricProgress'),`${summary.processed}/${summary.total}`,`${summary.completed} ${t('metricCompleted')} · ${summary.failed} ${t('metricFailed')}`,metrics)
+  for(const variant of ['flash','quality']){
+    const model=summary.models[variant]
+    const total=formatBatchAverage(model.average_inference_ms,value=>formatInferenceTime(value))
+    const ttft=formatBatchAverage(model.average_ttft_ms,value=>formatInferenceTime(value))
+    const throughput=formatBatchAverage(model.average_tokens_per_second,value=>`${Number(value).toFixed(1)} tok/s`)
+    const tokens=formatBatchAverage(model.average_output_tokens,value=>String(value))
+    appendBatchMetric(variant==='flash'?t('metricFlash'):t('metricFull'),`${ttft} TTFT · ${throughput}`,`${total} ${t('metricTotal')} · ${tokens} ${t('metricTokens')} · ${model.max_reached} ${t('metricMaxReached')}`,metrics)
+  }
+  const judged=summary.judge
+  const judgeValue=judged?.matched?`F ${judged.flash_mean} · Full ${judged.quality_mean}`:'—'
+  const judgeDetail=judged?.matched?`${judged.matched} ${t('metricMatched')} · ${judged.flash_wins}/${judged.quality_wins}/${judged.ties}`:t('metricNoJudge')
+  appendBatchMetric(t('metricJudge'),judgeValue,judgeDetail,metrics)
+
+  const list=document.createElement('div')
+  list.className='batch-results-list'
+  const visible=report.items.filter(item=>item.status!=='pending')
+  list.replaceChildren(...visible.map(item=>renderBatchResult(item,false,judgeReport)))
+  historyDetail.append(heading,metrics,list)
+}
+
+function renderHistory(){
+  historyRunList.replaceChildren()
+  historyEmpty.hidden=historyRecords.length>0
+  historyRunList.hidden=historyRecords.length===0
+  historyDetail.hidden=historyRecords.length===0
+  historyRecords.forEach((record,index)=>{
+    const button=document.createElement('button')
+    button.type='button'
+    button.className=`history-run-button${record.id===selectedHistoryId?' active':''}`
+    button.dataset.historyId=record.id
+    const title=document.createElement('strong')
+    title.textContent=`Multi-run ${historyRunNumber(index)}`
+    const date=document.createElement('span')
+    date.textContent=formattedHistoryDate(record.completed_at||record.created_at)
+    const detail=document.createElement('small')
+    detail.textContent=`${record.photo_count} ${t('historyPhotos')} · ${record.preset}`
+    button.append(title,date,detail)
+    historyRunList.append(button)
+  })
+  const selectedIndex=historyRecords.findIndex(record=>record.id===selectedHistoryId)
+  renderHistoryDetail(historyRecords[selectedIndex]||historyRecords[0],selectedIndex<0?0:selectedIndex)
+}
+
+async function importHistoryRun(file){
+  if(!file)return
+  try{
+    const report=JSON.parse(await file.text())
+    const normalized=normalizeHistoryReport(report)
+    await saveHistoryReport(normalized.report)
+    selectedHistoryId=normalized.id
+    await refreshHistoryRecords()
+  }catch{
+    historyImportButton.textContent=t('judgeInvalid')
+    setTimeout(()=>{historyImportButton.textContent=t('historyImport')},1800)
+  }
+}
+
+async function openHistory(){
+  await refreshHistoryRecords()
+  historyOverlay.hidden=false
+  document.body.style.overflow='hidden'
+  historyCloseButton.focus()
+}
+
+function closeHistory(){
+  historyOverlay.hidden=true
+  document.body.style.overflow=''
+  historyButton.focus()
 }
 
 function safeVisibleAnswer(result){
@@ -743,6 +902,7 @@ async function analysePhotoBatch(){
   if(batchActive||busy||sourceLoading||!modelsReady||currentSource?.kind!=='photo'||photoSelection.items.length<2)return
   if(!batchMatchesCurrentSelection()||batchSession.completed_at)batchSession=createBatchSession(photoSelection.items,{preset,maxTokens:256})
   markBatchStarted(batchSession)
+  ensureBatchHistoryId()
   batchActive=true
   batchStopRequested=false
   busy=true
@@ -757,6 +917,7 @@ async function analysePhotoBatch(){
     const shown=await showSelectedPhoto()
     if(!shown){
       recordBatchItem(batchSession,index,{status:'error',results:[]})
+      await persistCurrentBatchHistory()
       renderBatchUI()
       continue
     }
@@ -776,11 +937,13 @@ async function analysePhotoBatch(){
         sha256Blob(photoSelection.items[index].file)
       ])
       recordBatchItem(batchSession,index,{status:'complete',results:currentModelResults(),totalMs:stream.totalMs,jpegSha256,sourceSha256})
+      await persistCurrentBatchHistory()
     }catch(error){
       if(batchStopRequested||error?.name==='AbortError')requeueBatchItem(batchSession,index)
       else{
         markIncompleteModelsAsError()
         recordBatchItem(batchSession,index,{status:'error',results:currentModelResults()})
+        await persistCurrentBatchHistory()
       }
     }finally{
       activeController=null
@@ -793,6 +956,7 @@ async function analysePhotoBatch(){
     }
   }
   finishBatchSession(batchSession,{stopped:batchStopRequested})
+  await persistCurrentBatchHistory()
   batchActive=false
   busy=false
   activeController=null
@@ -834,6 +998,7 @@ async function importJudgeReport(file){
     return
   }
   renderBatchUI()
+  await persistCurrentBatchHistory()
 }
 
 async function analyseCurrentMoment(){
@@ -895,6 +1060,7 @@ function applyLanguage(){
   renderRuntimeStatus()
   setControlsDisabled()
   renderBatchUI()
+  renderHistory()
 }
 
 async function refreshStatus(){
@@ -953,6 +1119,18 @@ batchStopButton.addEventListener('click',stopPhotoBatch)
 batchExportButton.addEventListener('click',exportBatchResults)
 judgeImportButton.addEventListener('click',()=>{judgeReportFile.value='';judgeReportFile.click()})
 judgeReportFile.addEventListener('change',()=>importJudgeReport(judgeReportFile.files[0]))
+historyButton.addEventListener('click',openHistory)
+historyCloseButton.addEventListener('click',closeHistory)
+historyImportButton.addEventListener('click',()=>{historyRunFile.value='';historyRunFile.click()})
+historyRunFile.addEventListener('change',()=>importHistoryRun(historyRunFile.files[0]))
+historyRunList.addEventListener('click',event=>{
+  const button=event.target.closest('[data-history-id]')
+  if(!button)return
+  selectedHistoryId=button.dataset.historyId
+  renderHistory()
+})
+historyOverlay.addEventListener('click',event=>{if(event.target===historyOverlay)closeHistory()})
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!historyOverlay.hidden)closeHistory()})
 tryAgainButton.addEventListener('click',tryAnotherMoment)
 languageSelect.addEventListener('change',applyLanguage)
 video.addEventListener('play',()=>{if(!busy&&freezeCanvas.classList.contains('visible'))tryAnotherMoment()})
@@ -960,4 +1138,5 @@ window.addEventListener('pagehide',()=>{clearInterval(statusTimer);clearInterval
 
 applyLanguage()
 refreshStatus()
+refreshHistoryRecords()
 statusTimer=setInterval(refreshStatus,5_000)

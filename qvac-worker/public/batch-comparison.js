@@ -165,10 +165,12 @@ export function normalizePrecomputedJudgeReport(value){
     })
   }
   if(!cases.size)throw new Error('Judge report contains no usable cases')
+  const evaluationMode=boundedText(value?.judge?.evaluation_mode,200)||null
   return {
     source:'precomputed',
-    label:'Precomputed blind judge',
+    label:/\bblind\b/i.test(evaluationMode||'')?'Post-hoc blind judge':'Post-hoc judge',
     judge_model:boundedText(value?.judge?.model||value?.judge||'External judge',120),
+    evaluation_mode:evaluationMode,
     imported_cases:cases.size,
     cases
   }
@@ -187,6 +189,7 @@ export function serializableBatchReport(session,judgeReport=null){
       source:'precomputed',
       label:judgeReport.label,
       judge_model:judgeReport.judge_model,
+      evaluation_mode:judgeReport.evaluation_mode,
       imported_cases:judgeReport.imported_cases,
       cases:[...judgeReport.cases.values()]
     }:null

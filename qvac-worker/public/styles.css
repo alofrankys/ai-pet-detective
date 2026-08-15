@@ -26,6 +26,7 @@ button:focus-visible,select:focus-visible,[role="option"]:focus-visible,summary:
 [hidden] { display:none !important; }
 .native-file-input { position:fixed; left:0; top:0; width:1px; height:1px; padding:0; border:0; opacity:.001; }
 #judgeReportFile { left:2px; }
+#historyRunFile { left:4px; }
 
 .studio { width:min(1510px,100%); margin:auto; padding:22px 24px 26px; }
 .topbar {
@@ -61,6 +62,22 @@ button:focus-visible,select:focus-visible,[role="option"]:focus-visible,summary:
 .eyebrow,.section-label { color:#21883d; font-size:9px; letter-spacing:.14em; font-weight:720; }
 h1 { margin:3px 0 0; font-size:25px; line-height:1.05; font-weight:650; letter-spacing:-.035em; }
 .top-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
+.history-button {
+  display:flex;
+  align-items:center;
+  gap:7px;
+  min-height:34px;
+  padding:7px 9px 7px 11px;
+  border:1px solid rgba(0,0,0,.1);
+  border-radius:9px;
+  color:#303035;
+  background:linear-gradient(180deg,#fff,#f2f2f4);
+  box-shadow:inset 0 1px 0 #fff,0 1px 1px rgba(0,0,0,.04);
+  cursor:pointer;
+  font-size:10px;
+  font-weight:650;
+}
+.history-button b { min-width:18px; padding:3px 5px; border-radius:999px; color:#21883d; background:#eaf8ed; font-size:8px; text-align:center; }
 .compact-control {
   display:flex;
   align-items:center;
@@ -412,6 +429,34 @@ video,#photoPreview,#momentFreeze { position:absolute; inset:0; width:100%; heig
 .batch-result-judge-detail { margin-top:7px; padding:9px 10px; border:1px solid rgba(255,159,10,.2); border-radius:9px; color:#72561d; background:#fff9ed; font-size:9px; line-height:1.45; }
 .batch-result-judge-detail strong { color:#62490f; }
 
+.history-overlay { position:fixed; z-index:100; left:0; top:0; width:100vw; height:100dvh; padding:16px; overflow-y:auto; background:rgba(35,36,40,.28); -webkit-backdrop-filter:blur(18px); backdrop-filter:blur(18px); }
+.history-dialog { display:flex; width:min(1180px,100%); min-height:min(720px,calc(100dvh - 32px)); max-height:calc(100dvh - 32px); margin:auto; flex-direction:column; overflow:hidden; border:1px solid rgba(0,0,0,.12); border-radius:20px; background:#f7f7f9; box-shadow:0 28px 80px rgba(15,18,22,.25); }
+.history-header { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; padding:19px 21px; border-bottom:1px solid rgba(0,0,0,.09); background:rgba(255,255,255,.88); }
+.history-header h2 { margin:5px 0 5px; font-size:25px; line-height:1; letter-spacing:-.035em; }
+.history-header p { margin:0; color:#74757a; font-size:10px; }
+.history-header-actions { display:flex; align-items:center; gap:7px; }
+.history-header-actions button { padding:8px 10px; border:1px solid rgba(0,0,0,.11); border-radius:9px; color:#303035; background:linear-gradient(180deg,#fff,#f1f1f3); cursor:pointer; font-size:9px; font-weight:650; }
+.history-header-actions .history-close { display:grid; width:32px; height:32px; padding:0; place-items:center; border-radius:50%; color:#707176; font-size:18px; line-height:1; }
+.history-layout { display:grid; min-height:0; flex:1; grid-template-columns:260px minmax(0,1fr); overflow:hidden; }
+.history-run-list { min-height:0; padding:11px; overflow-y:auto; border-right:1px solid rgba(0,0,0,.09); background:#eeeef1; }
+.history-run-button { display:block; width:100%; margin-bottom:7px; padding:11px; border:1px solid transparent; border-radius:11px; color:#303035; background:transparent; cursor:pointer; text-align:left; }
+.history-run-button:hover { background:rgba(255,255,255,.65); }
+.history-run-button.active { border-color:rgba(0,122,255,.18); background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+.history-run-button strong,.history-run-button span,.history-run-button small { display:block; }
+.history-run-button strong { font-size:12px; }
+.history-run-button span { margin-top:4px; color:#6f7075; font-size:9px; }
+.history-run-button small { margin-top:7px; color:#21883d; font-size:8px; font-weight:650; }
+.history-detail { min-width:0; min-height:0; padding:18px; overflow-y:auto; background:#fafafc; }
+.history-detail-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:13px; }
+.history-detail-head h3 { margin:4px 0 4px; font-size:22px; letter-spacing:-.035em; }
+.history-detail-head p { margin:0; color:#74757a; font-size:9px; }
+.history-detail-badge { padding:5px 8px; border:1px solid rgba(52,199,89,.18); border-radius:999px; color:#21883d; background:#edf9f0; font-size:8px; font-weight:680; white-space:nowrap; }
+.history-detail .batch-metrics { padding:0 0 13px; border:0; background:transparent; }
+.history-detail .batch-results-list { padding:0; border:0; background:transparent; }
+.history-empty { grid-column:1/-1; display:grid; place-content:center; justify-items:center; gap:7px; min-height:360px; padding:30px; color:#73747a; text-align:center; }
+.history-empty strong { color:#313136; font-size:17px; }
+.history-empty span { max-width:380px; font-size:10px; line-height:1.5; }
+
 @media (min-width:960px) {
   .studio { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(340px,.82fr); grid-template-rows:auto auto; column-gap:18px; row-gap:15px; }
   .topbar { grid-column:1/-1; margin-bottom:0; }
@@ -451,6 +496,14 @@ video,#photoPreview,#momentFreeze { position:absolute; inset:0; width:100%; heig
   .batch-result summary { grid-template-columns:minmax(0,1fr) auto; }
   .batch-result-judge { grid-column:1/-1; justify-self:start; }
   .batch-result-models { grid-template-columns:1fr; }
+  .history-overlay { padding:0; }
+  .history-dialog { width:100%; min-height:100dvh; max-height:100dvh; border:0; border-radius:0; }
+  .history-header { padding:15px; }
+  .history-header p { display:none; }
+  .history-layout { display:block; overflow-y:auto; }
+  .history-run-list { display:flex; min-height:auto; padding:9px; overflow-x:auto; overflow-y:hidden; border-right:0; border-bottom:1px solid rgba(0,0,0,.09); }
+  .history-run-button { flex:0 0 185px; margin:0 7px 0 0; }
+  .history-detail { overflow:visible; padding:13px; }
 }
 @media (min-width:701px) and (max-width:959px) { .lens-panel { margin-top:14px; } }
 @media (max-width:420px) {

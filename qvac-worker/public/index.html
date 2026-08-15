@@ -19,6 +19,7 @@
         </div>
       </div>
       <div class="top-actions">
+        <button id="historyButton" class="history-button" type="button" data-i18n-aria="history"><span data-i18n="history">History</span><b id="historyCount">0</b></button>
         <label class="compact-control"><span data-i18n="language">UI language</span><select id="languageSelect"><option value="en">English</option><option value="it">Italiano</option></select></label>
         <div class="status" role="status" aria-live="polite"><span id="statusDot" class="starting"></span><span id="statusText">VisionPsy starting…</span></div>
       </div>
@@ -147,9 +148,23 @@
     </div>
     <div id="batchResultsList" class="batch-results-list"></div>
   </section>
+  <section id="historyOverlay" class="history-overlay" hidden aria-labelledby="historyTitle" aria-modal="true" role="dialog">
+    <div class="history-dialog">
+      <header class="history-header">
+        <div><span class="eyebrow" data-i18n="historyEyebrow">PERSISTENT LOCAL ARCHIVE</span><h2 id="historyTitle" data-i18n="historyTitle">Run History</h2><p data-i18n="historyIntro">Descriptions, KPIs and imported post-hoc judge reports survive page refreshes.</p></div>
+        <div class="history-header-actions"><button id="historyImportButton" type="button" data-i18n="historyImport">Import run</button><button id="historyCloseButton" class="history-close" type="button" aria-label="Close history" data-i18n-aria="historyClose">×</button></div>
+      </header>
+      <div class="history-layout">
+        <nav id="historyRunList" class="history-run-list" aria-label="Saved runs" data-i18n-aria="historySavedRuns"></nav>
+        <div id="historyDetail" class="history-detail"></div>
+        <div id="historyEmpty" class="history-empty" hidden><strong data-i18n="historyEmptyTitle">No saved runs yet</strong><span data-i18n="historyEmptyCopy">Complete a multi-photo comparison or import an exported Moment Lens batch.</span></div>
+      </div>
+    </div>
+  </section>
   <input id="videoFile" type="file" accept="video/*" hidden>
   <input id="photoFiles" class="native-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple aria-hidden="true" tabindex="-1">
   <input id="judgeReportFile" class="native-file-input" type="file" accept="application/json,.json" aria-hidden="true" tabindex="-1">
+  <input id="historyRunFile" class="native-file-input" type="file" accept="application/json,.json" aria-hidden="true" tabindex="-1">
   <script type="module" src="./app.js"></script>
 </body>
 </html>
