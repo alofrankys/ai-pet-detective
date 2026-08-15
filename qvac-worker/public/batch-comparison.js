@@ -20,6 +20,8 @@ function rounded(value){
 function modelSummary(items,variant){
   const results=items.flatMap(item=>item.results||[]).filter(result=>result?.variant===variant)
   const timings=results.map(result=>finiteNumber(result.inference_ms)).filter(value=>value!==null)
+  const ttfts=results.map(result=>finiteNumber(result.ttft_ms)).filter(value=>value!==null)
+  const throughputs=results.map(result=>finiteNumber(result.tokens_per_second??result.timings?.predicted_per_second)).filter(value=>value!==null)
   const tokens=results.map(result=>finiteNumber(result.output_tokens)).filter(value=>value!==null)
   return {
     results:results.length,
@@ -28,6 +30,8 @@ function modelSummary(items,variant){
     unclear:results.filter(result=>result.status==='unclear').length,
     errors:results.filter(result=>result.status==='error').length,
     average_inference_ms:rounded(mean(timings)),
+    average_ttft_ms:rounded(mean(ttfts)),
+    average_tokens_per_second:rounded(mean(throughputs)),
     average_output_tokens:rounded(mean(tokens))
   }
 }

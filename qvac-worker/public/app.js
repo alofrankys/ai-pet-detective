@@ -69,6 +69,8 @@ const modelElements=Object.freeze({
     state:document.getElementById('flashState'),
     answer:document.getElementById('flashAnswer'),
     inference:document.getElementById('flashInferenceTime'),
+    ttft:document.getElementById('flashTtft'),
+    throughput:document.getElementById('flashThroughput'),
     outputTokens:document.getElementById('flashOutputTokens')
   },
   quality:{
@@ -76,6 +78,8 @@ const modelElements=Object.freeze({
     state:document.getElementById('qualityState'),
     answer:document.getElementById('qualityAnswer'),
     inference:document.getElementById('qualityInferenceTime'),
+    ttft:document.getElementById('qualityTtft'),
+    throughput:document.getElementById('qualityThroughput'),
     outputTokens:document.getElementById('qualityOutputTokens')
   }
 })
@@ -90,7 +94,7 @@ const copy={
     speedPath:'FLASH VISUAL PATH',qualityPath:'FULL VISUAL PATH',modelWaiting:'Waiting',modelQueued:'Queued',modelRunning:'Analysing',modelReady:'Ready',modelLimited:'Max reached',modelUnclear:'Unclear',modelError:'Unavailable',outputTokens:'output tokens',
     flashLooking:'Flash is looking…',qualityLooking:'Full is looking…',cameraSource:'Camera',fileSource:'Uploaded video',photoSource:'Photo',cameraError:'Camera unavailable',videoError:'This video cannot be opened in the browser.',photoError:'These photos cannot be opened. Choose JPEG, HEIC/HEIF, PNG, or WebP files.',
     changeSource:'Change source',stageLabel:'Camera, video, or selected photo',selectedPhotos:'Selected photos',photoList:'Photos',momentPromptLabel:'Moment Lens prompt',cameraShort:'Camera',videoShort:'Video',photosShort:'Photos',previousPhoto:'Previous photo',nextPhoto:'Next photo',photoLabel:'Photo',
-    batchCompare:'Compare all photos',batchResume:'Resume comparison',batchStop:'Stop',batchExport:'Export results',judgeImport:'Import judge report',batchEyebrow:'LOCAL MULTI-PHOTO RUN',batchTitle:'Batch Compare',batchIntro:'One photo at a time. Flash and Full run together; cumulative metrics update after every photo.',batchReady:'Ready to compare',batchRunning:'Comparing photos locally',batchStopped:'Stopped · results are safe',batchComplete:'Batch complete',judgePrecomputed:'Judge results are imported from a precomputed blind report. No cloud judge runs inside Studio.',judgeNotLoaded:'No judge report loaded',judgeLoaded:'Precomputed judge loaded',judgeInvalid:'Judge report not recognised',metricProgress:'PROGRESS',metricFlash:'FLASH',metricFull:'FULL',metricJudge:'JUDGE',metricCompleted:'completed',metricFailed:'failed',metricAverage:'avg',metricTokens:'tokens',metricMaxReached:'max reached',metricNoJudge:'not loaded',metricMatched:'matched',batchPending:'Pending',batchItemRunning:'Analysing',batchItemComplete:'Complete',batchItemError:'Error',judgeTie:'Tie',judgeWinner:'winner',judgeScore:'score',batchLocalOnly:'Local VisionPsy run',
+    batchCompare:'Compare all photos',batchResume:'Resume comparison',batchStop:'Stop',batchExport:'Export results',judgeImport:'Import judge report',batchEyebrow:'LOCAL MULTI-PHOTO RUN',batchTitle:'Batch Compare',batchIntro:'One photo at a time. Flash and Full run together; cumulative metrics update after every photo.',batchReady:'Ready to compare',batchRunning:'Comparing photos locally',batchStopped:'Stopped · results are safe',batchComplete:'Batch complete',judgePrecomputed:'Judge results are imported from a precomputed blind report. No cloud judge runs inside Studio.',judgeNotLoaded:'No judge report loaded',judgeLoaded:'Precomputed judge loaded',judgeInvalid:'Judge report not recognised',metricProgress:'PROGRESS',metricFlash:'FLASH',metricFull:'FULL',metricJudge:'JUDGE',metricCompleted:'completed',metricFailed:'failed',metricAverage:'avg',metricTotal:'total',metricTokens:'tokens',metricMaxReached:'max reached',metricNoJudge:'not loaded',metricMatched:'matched',batchPending:'Pending',batchItemRunning:'Analysing',batchItemComplete:'Complete',batchItemError:'Error',judgeTie:'Tie',judgeWinner:'winner',judgeScore:'score',batchLocalOnly:'Local VisionPsy run',
     privacyNote:'Same selected image · Same prompt · Greedy · 256 max output tokens · Q4_K_M · 100% local.'
   },
   it:{
@@ -102,7 +106,7 @@ const copy={
     speedPath:'PERCORSO VISIVO FLASH',qualityPath:'PERCORSO VISIVO FULL',modelWaiting:'In attesa',modelQueued:'In coda',modelRunning:'Analisi',modelReady:'Pronto',modelLimited:'Limite raggiunto',modelUnclear:'Poco chiaro',modelError:'Non disponibile',outputTokens:'token di output',
     flashLooking:'Flash sta osservando…',qualityLooking:'Full sta osservando…',cameraSource:'Fotocamera',fileSource:'Video caricato',photoSource:'Foto',cameraError:'Fotocamera non disponibile',videoError:'Questo video non può essere aperto nel browser.',photoError:'Queste foto non possono essere aperte. Scegli file JPEG, HEIC/HEIF, PNG o WebP.',
     changeSource:'Cambia sorgente',stageLabel:'Fotocamera, video o foto selezionata',selectedPhotos:'Foto selezionate',photoList:'Foto',momentPromptLabel:'Prompt di Moment Lens',cameraShort:'Fotocamera',videoShort:'Video',photosShort:'Foto',previousPhoto:'Foto precedente',nextPhoto:'Foto successiva',photoLabel:'Foto',
-    batchCompare:'Confronta tutte le foto',batchResume:'Riprendi confronto',batchStop:'Ferma',batchExport:'Esporta risultati',judgeImport:'Importa report judge',batchEyebrow:'ANALISI MULTI-FOTO LOCALE',batchTitle:'Batch Compare',batchIntro:'Una foto alla volta. Flash e Full lavorano insieme; i KPI cumulativi si aggiornano dopo ogni foto.',batchReady:'Pronto al confronto',batchRunning:'Confronto locale in corso',batchStopped:'Fermato · risultati salvati',batchComplete:'Batch completato',judgePrecomputed:'I risultati del judge provengono da un report cieco precomputato. Nessun judge cloud viene eseguito nella Studio.',judgeNotLoaded:'Nessun report judge caricato',judgeLoaded:'Judge precomputato caricato',judgeInvalid:'Report judge non riconosciuto',metricProgress:'AVANZAMENTO',metricFlash:'FLASH',metricFull:'FULL',metricJudge:'JUDGE',metricCompleted:'completate',metricFailed:'errori',metricAverage:'media',metricTokens:'token',metricMaxReached:'limite raggiunto',metricNoJudge:'non caricato',metricMatched:'associate',batchPending:'In attesa',batchItemRunning:'Analisi',batchItemComplete:'Completa',batchItemError:'Errore',judgeTie:'Pareggio',judgeWinner:'vincitore',judgeScore:'punteggio',batchLocalOnly:'Analisi VisionPsy locale',
+    batchCompare:'Confronta tutte le foto',batchResume:'Riprendi confronto',batchStop:'Ferma',batchExport:'Esporta risultati',judgeImport:'Importa report judge',batchEyebrow:'ANALISI MULTI-FOTO LOCALE',batchTitle:'Batch Compare',batchIntro:'Una foto alla volta. Flash e Full lavorano insieme; i KPI cumulativi si aggiornano dopo ogni foto.',batchReady:'Pronto al confronto',batchRunning:'Confronto locale in corso',batchStopped:'Fermato · risultati salvati',batchComplete:'Batch completato',judgePrecomputed:'I risultati del judge provengono da un report cieco precomputato. Nessun judge cloud viene eseguito nella Studio.',judgeNotLoaded:'Nessun report judge caricato',judgeLoaded:'Judge precomputato caricato',judgeInvalid:'Report judge non riconosciuto',metricProgress:'AVANZAMENTO',metricFlash:'FLASH',metricFull:'FULL',metricJudge:'JUDGE',metricCompleted:'completate',metricFailed:'errori',metricAverage:'media',metricTotal:'totale',metricTokens:'token',metricMaxReached:'limite raggiunto',metricNoJudge:'non caricato',metricMatched:'associate',batchPending:'In attesa',batchItemRunning:'Analisi',batchItemComplete:'Completa',batchItemError:'Errore',judgeTie:'Pareggio',judgeWinner:'vincitore',judgeScore:'punteggio',batchLocalOnly:'Analisi VisionPsy locale',
     privacyNote:'Stessa immagine selezionata · Stesso prompt · Greedy · Massimo 256 token di output · Q4_K_M · 100% locale.'
   }
 }
@@ -130,7 +134,10 @@ let batchSession=null
 let batchJudgeReport=null
 let batchActive=false
 let batchStopRequested=false
-const modelViews={flash:{phase:'waiting',result:null,startedAt:null},quality:{phase:'waiting',result:null,startedAt:null}}
+const modelViews={
+  flash:{phase:'waiting',result:null,startedAt:null,draft:'',liveTokens:0,ttftMs:null},
+  quality:{phase:'waiting',result:null,startedAt:null,draft:'',liveTokens:0,ttftMs:null}
+}
 
 function t(key){return copy[language][key]||copy.en[key]||key}
 
@@ -203,6 +210,16 @@ function formatInferenceTime(value){
   const milliseconds=Number(value)
   if(!Number.isFinite(milliseconds))return '— ms'
   return milliseconds<1000?`${Math.round(milliseconds)} ms`:`${(milliseconds/1000).toFixed(2)} s`
+}
+
+function formatTtft(value){
+  const formatted=formatInferenceTime(value)
+  return formatted==='— ms'?'— TTFT':`${formatted} TTFT`
+}
+
+function formatThroughput(value){
+  const number=Number(value)
+  return Number.isFinite(number)&&number>=0?`${number.toFixed(1)} tok/s`:'— tok/s'
 }
 
 function outputTokenCount(result){
@@ -312,8 +329,10 @@ function renderBatchUI(){
   for(const variant of ['flash','quality']){
     const model=summary.models[variant]
     const average=formatBatchAverage(model.average_inference_ms,value=>formatInferenceTime(value))
+    const ttft=formatBatchAverage(model.average_ttft_ms,value=>formatInferenceTime(value))
+    const throughput=formatBatchAverage(model.average_tokens_per_second,value=>`${Number(value).toFixed(1)} tok/s`)
     const tokens=formatBatchAverage(model.average_output_tokens,value=>String(value))
-    appendBatchMetric(variant==='flash'?t('metricFlash'):t('metricFull'),average,`${tokens} ${t('metricTokens')} · ${model.max_reached} ${t('metricMaxReached')}`)
+    appendBatchMetric(variant==='flash'?t('metricFlash'):t('metricFull'),`${average} ${t('metricTotal')}`,`${ttft} TTFT · ${throughput} · ${tokens} ${t('metricTokens')} · ${model.max_reached} ${t('metricMaxReached')}`)
   }
   const judged=summary.judge
   const judgeValue=judged.matched?`F ${judged.flash_mean} · Full ${judged.quality_mean}`:'—'
@@ -360,9 +379,12 @@ function renderModel(variant){
   const key={waiting:'modelWaiting',queued:'modelQueued',running:'modelRunning',clear:'modelReady',limited:'modelLimited',unclear:'modelUnclear',error:'modelError'}[phase]||'modelWaiting'
   const elapsed=phase==='running'&&Number.isFinite(view.startedAt)?Math.max(0,performance.now()-view.startedAt):null
   elements.state.textContent=elapsed===null?t(key):`${t(key)} · ${(elapsed/1000).toFixed(1)}s`
-  elements.answer.textContent=phase==='clear'||phase==='limited'?safeAnswer:phase==='unclear'?t('momentUnclear'):phase==='error'?t('momentError'):''
-  elements.inference.textContent=view.result?formatInferenceTime(view.result.inference_ms):'— ms'
-  elements.outputTokens.textContent=formatOutputTokens(view.result)
+  elements.answer.classList.toggle('streaming',phase==='running'&&Boolean(view.draft))
+  elements.answer.textContent=phase==='running'?view.draft:phase==='clear'||phase==='limited'?safeAnswer:phase==='unclear'?t('momentUnclear'):phase==='error'?t('momentError'):''
+  elements.inference.textContent=view.result?`${formatInferenceTime(view.result.inference_ms)} total`:'— total'
+  elements.ttft.textContent=formatTtft(view.result?.ttft_ms??view.ttftMs)
+  elements.throughput.textContent=formatThroughput(view.result?.tokens_per_second)
+  elements.outputTokens.textContent=phase==='running'&&view.liveTokens?`${view.liveTokens} ${t('outputTokens')} · live`:formatOutputTokens(view.result)
 }
 
 function resetComparison({hideFreeze=true}={}){
@@ -376,6 +398,9 @@ function resetComparison({hideFreeze=true}={}){
     modelViews[variant].phase='waiting'
     modelViews[variant].result=null
     modelViews[variant].startedAt=null
+    modelViews[variant].draft=''
+    modelViews[variant].liveTokens=0
+    modelViews[variant].ttftMs=null
     renderModel(variant)
   }
   if(hideFreeze)freezeCanvas.classList.remove('visible')
@@ -410,8 +435,8 @@ function clearVideoSource(){
 }
 
 function prepareComparison(){
-  modelViews.flash={phase:'queued',result:null,startedAt:null}
-  modelViews.quality={phase:'queued',result:null,startedAt:null}
+  modelViews.flash={phase:'queued',result:null,startedAt:null,draft:'',liveTokens:0,ttftMs:null}
+  modelViews.quality={phase:'queued',result:null,startedAt:null,draft:'',liveTokens:0,ttftMs:null}
   renderModel('flash')
   renderModel('quality')
   comparisonResults.hidden=false
@@ -511,7 +536,14 @@ function renderPhotoFilmstrip(){
       let released=false
       const release=()=>{if(!released){released=true;thumbnailObjectUrls.delete(thumbnailUrl);URL.revokeObjectURL(thumbnailUrl)}}
       thumbnail.addEventListener('load',release,{once:true})
-      thumbnail.addEventListener('error',release,{once:true})
+      thumbnail.addEventListener('error',()=>{
+        release()
+        thumbnail.remove()
+        const fallback=document.createElement('span')
+        fallback.className='photo-thumbnail-format'
+        fallback.textContent=['image/heic','image/heif'].includes(item.type)?'HEIC':'PHOTO'
+        button.append(fallback)
+      },{once:true})
       thumbnail.src=thumbnailUrl
     }
     button.append(thumbnail)
@@ -626,11 +658,20 @@ function handleComparisonEvent(event){
     modelViews[event.variant].startedAt=performance.now()
     renderModel(event.variant)
   }
+  if(event.type==='model-progress'&&Object.hasOwn(modelViews,event.variant)){
+    const view=modelViews[event.variant]
+    view.phase='running'
+    if(typeof event.text==='string')view.draft=event.text
+    if(Number.isSafeInteger(event.output_tokens)&&event.output_tokens>=0)view.liveTokens=event.output_tokens
+    if(Number.isFinite(Number(event.ttft_ms)))view.ttftMs=Number(event.ttft_ms)
+    renderModel(event.variant)
+  }
   if(event.type==='model-result'&&Object.hasOwn(modelViews,event.result?.variant)){
     const variant=event.result.variant
     modelViews[variant].phase='result'
     modelViews[variant].result=event.result
     modelViews[variant].startedAt=null
+    modelViews[variant].draft=''
     renderModel(variant)
   }
   if(event.type==='comparison-complete')return true

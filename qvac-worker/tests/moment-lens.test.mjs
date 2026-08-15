@@ -17,7 +17,8 @@ import {
 import {
   VISIONPSY_MODELS,
   VISIONPSY_WEIGHT_QUANTIZATION,
-  inspectVisionPsyRuntime
+  inspectVisionPsyRuntime,
+  parseVisionPsyEventStream
 } from '../visionpsy-runtimes.mjs'
 import {
   clampPhotoIndex,
@@ -219,16 +220,20 @@ test('batch metrics update cumulatively and keep Flash and Full independent',()=
   markBatchStarted(session)
   markBatchItemRunning(session,0)
   recordBatchItem(session,0,{totalMs:420,jpegSha256:'abc',sourceSha256:'source-abc',results:[
-    {variant:'flash',status:'clear',answer:'A dog.',inference_ms:100,output_tokens:20,finish_reason:'stop'},
-    {variant:'quality',status:'clear',answer:'A dog by a chair.',inference_ms:300,output_tokens:256,finish_reason:'length'}
+    {variant:'flash',status:'clear',answer:'A dog.',inference_ms:100,ttft_ms:30,tokens_per_second:110,output_tokens:20,finish_reason:'stop'},
+    {variant:'quality',status:'clear',answer:'A dog by a chair.',inference_ms:300,ttft_ms:40,timings:{predicted_per_second:90},output_tokens:256,finish_reason:'length'}
   ]})
   let summary=summarizeBatchSession(session)
   assert.deepEqual({processed:summary.processed,completed:summary.completed,pending:summary.pending},{processed:1,completed:1,pending:1})
   assert.equal(summary.models.flash.average_inference_ms,100)
   assert.equal(summary.models.flash.average_output_tokens,20)
+  assert.equal(summary.models.flash.average_ttft_ms,30)
+  assert.equal(summary.models.flash.average_tokens_per_second,110)
   assert.equal(summary.models.flash.max_reached,0)
   assert.equal(summary.models.quality.average_inference_ms,300)
   assert.equal(summary.models.quality.average_output_tokens,256)
+  assert.equal(summary.models.quality.average_ttft_ms,40)
+  assert.equal(summary.models.quality.average_tokens_per_second,90)
   assert.equal(summary.models.quality.max_reached,1)
   assert.equal(session.items[0].source_sha256,'source-abc')
 
@@ -480,6 +485,62 @@ test('output token counts remain independent for both model cards and honest unc
   assert.equal(result.results[1].status,'unclear')
 })
 
+test('VisionPsy SSE parsing streams deltas once and preserves final metrics',async()=>{
+  const encoder=new TextEncoder()
+  const frames=[
+    {choices:[{delta:{content:'A dog '},finish_reason:null}]},
+    {choices:[{delta:{content:'stands beside a chair.'},finish_reason:null}]},
+    {choices:[{delta:{},finish_reason:'stop'}],usage:{completion_tokens:7},timings:{predicted_n:7,predicted_per_second:91.25}}
+  ]
+  const body=new ReadableStream({
+    start(controller){
+      controller.enqueue(encoder.encode(`${frames.map(frame=>`data: ${JSON.stringify(frame)}\n\n`).join('')}data: [DONE]\n\n`))
+      controller.close()
+    }
+  })
+  const deltas=[]
+  const result=await parseVisionPsyEventStream(body,{onDelta:update=>deltas.push(update)})
+  assert.equal(result.content,'A dog stands beside a chair.')
+  assert.equal(result.finish_reason,'stop')
+  assert.equal(result.usage.completion_tokens,7)
+  assert.equal(result.timings.predicted_per_second,91.25)
+  assert.equal(result.streamed_tokens,2)
+  assert.deepEqual(deltas.map(item=>item.output_tokens),[1,2])
+})
+
+test('comparison emits live token progress and only validated natural-language sentences',async()=>{
+  const updates=[]
+  let time=0
+  const streamingCall=answer=>async(_body,_context,_spec,{onDelta})=>{
+    for(const content of answer){onDelta({content,output_tokens:(time/10)+1});time+=10}
+    return {content:answer.join(''),finish_reason:'stop',usage:{completion_tokens:answer.length},timings:{predicted_per_second:88.4}}
+  }
+  const result=await analyseMomentLensPair({jpeg,preset:'describe'}, {
+    flash:streamingCall(['A dog ','stands beside a chair.']),
+    quality:streamingCall(['A dog rests. ','A blue bowl is nearby.'])
+  },()=>time,event=>updates.push(event))
+  const progress=updates.filter(event=>event.type==='model-progress')
+  assert.ok(progress.length>=4)
+  assert.ok(progress.some(event=>event.variant==='flash'&&event.text==='A dog stands beside a chair.'))
+  assert.ok(progress.some(event=>event.variant==='quality'&&event.text==='A dog rests. A blue bowl is nearby.'))
+  assert.ok(result.results.every(item=>Number.isFinite(item.ttft_ms)))
+  assert.deepEqual(result.results.map(item=>item.tokens_per_second),[88.4,88.4])
+})
+
+test('schema echoes can update the live counter but never the streaming text',async()=>{
+  const malformed=['In the video, ',`[ { "events": [ { "actor_ref": "subject_1", `,`"action": "petting|lying_down|standing_up" } ] } ]`]
+  const updates=[]
+  const call=async(_body,_context,_spec,{onDelta})=>{
+    malformed.forEach((content,index)=>onDelta({content,output_tokens:index+1}))
+    return {content:malformed.join(''),usage:{completion_tokens:3}}
+  }
+  const result=await analyseMomentLensPair({jpeg,preset:'describe'},{flash:call,quality:call},(()=>{let n=0;return()=>n++})(),event=>updates.push(event))
+  const progress=updates.filter(event=>event.type==='model-progress')
+  assert.ok(progress.length)
+  assert.ok(progress.every(event=>event.text===''))
+  assert.deepEqual(result.results.map(item=>item.status),['unclear','unclear'])
+})
+
 test('Flash and Full start simultaneously and complete independently',async()=>{
   const trace=[]
   let releaseFlash
@@ -715,6 +776,7 @@ test('browser controller makes one streamed comparison request and contains no t
   assert.match(app,/createPhotoSelection\(files\)/)
   assert.match(app,/getReader\(\)/)
   assert.match(app,/model-start/)
+  assert.match(app,/model-progress/)
   assert.match(app,/model-result/)
   assert.match(app,/finish_reason==='length'/)
   assert.match(app,/elements\.answer\.textContent=/)
@@ -732,13 +794,25 @@ test('complete model answers can wrap without a CSS line clamp',()=>{
 test('public interface exposes two polished result cards and no Live or Deep modes',()=>{
   const html=fs.readFileSync(path.join(workerRoot,'public/index.html'),'utf8')
   assert.match(html,/<h1>Moment Lens<\/h1>/)
-  for(const id of ['flashCard','qualityCard','flashAnswer','qualityAnswer','flashOutputTokens','qualityOutputTokens'])assert.match(html,new RegExp(`id=["']${id}["']`),id)
+  for(const id of ['flashCard','qualityCard','flashAnswer','qualityAnswer','flashTtft','qualityTtft','flashThroughput','qualityThroughput','flashOutputTokens','qualityOutputTokens'])assert.match(html,new RegExp(`id=["']${id}["']`),id)
   assert.match(html,/Flash/)
   assert.match(html,/Full/)
   assert.match(html,/Compare this moment/)
   assert.match(html,/Same selected image/)
   assert.equal((html.match(/Greedy · max 256/g)||[]).length,2)
   assert.doesNotMatch(html,/Live Studio|Deep Analysis|YouTube URL|data-studio-mode|sessionModal/)
+})
+
+test('Studio presentation uses a native-style light shell with accessible model accents',()=>{
+  const html=fs.readFileSync(path.join(workerRoot,'public/index.html'),'utf8')
+  const css=fs.readFileSync(path.join(workerRoot,'public/styles.css'),'utf8')
+  assert.match(html,/class="brand-icon"/)
+  assert.match(css,/:root\s*\{[^}]*color-scheme:light/s)
+  assert.match(css,/font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text"/)
+  assert.match(css,/#flashCard\s*\{[^}]*background:/s)
+  assert.match(css,/#qualityCard\s*\{[^}]*background:/s)
+  assert.match(css,/button:focus-visible/)
+  assert.match(css,/\.photo-thumbnail-format/)
 })
 
 test('public interface accepts one or many local photos without a multi-image API',()=>{

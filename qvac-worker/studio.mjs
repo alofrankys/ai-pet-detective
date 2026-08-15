@@ -165,11 +165,12 @@ function modelMetadata(spec){
 }
 
 function normalizedCompletion(value){
-  return typeof value==='string'?{content:value,finish_reason:null,usage:null,timings:null}:{
+  return typeof value==='string'?{content:value,finish_reason:null,usage:null,timings:null,streamed_tokens:null}:{
     content:String(value?.content??''),
     finish_reason:String(value?.finish_reason||'')||null,
     usage:value?.usage||null,
-    timings:value?.timings||null
+    timings:value?.timings||null,
+    streamed_tokens:Number.isSafeInteger(value?.streamed_tokens)?value.streamed_tokens:null
   }
 }
 
@@ -180,17 +181,52 @@ function normalizedOutputTokens(usage,timings){
   return null
 }
 
-async function runVariant(spec,request,modelCall,clock,{captureErrors=true}={}){
+function normalizedTokensPerSecond(timings,outputTokens,inferenceMs,ttftMs){
+  const native=Number(timings?.predicted_per_second)
+  if(Number.isFinite(native)&&native>=0)return Number(native.toFixed(1))
+  if(!Number.isFinite(outputTokens)||!Number.isFinite(inferenceMs))return null
+  const generationMs=Math.max(0,inferenceMs-(Number.isFinite(ttftMs)?ttftMs:0))
+  return generationMs>0?Number((outputTokens/(generationMs/1000)).toFixed(1)):null
+}
+
+function safeStreamingPreview(raw,preset){
+  const normalized=String(raw||'').replace(/\r\n?/g,'\n')
+  // Only release completed natural-language sentences. This keeps token progress
+  // real-time without exposing a schema or prompt echo before it is validated.
+  const boundary=Math.max(normalized.lastIndexOf('.'),normalized.lastIndexOf('!'),normalized.lastIndexOf('?'))
+  if(boundary<0)return null
+  const candidate=normalized.slice(0,boundary+1).trim()
+  const sanitized=sanitizeMomentLensAnswer(candidate,preset)
+  return sanitized.status==='clear'?sanitized.answer:null
+}
+
+async function runVariant(spec,request,modelCall,clock,{captureErrors=true,onProgress=()=>{}}={}){
   const started=Number(clock())
+  let rawStream=''
+  let preview=''
+  let ttftMs=null
+  let liveTokens=0
   try{
-    const completion=normalizedCompletion(await modelCall(request.api_body,request.request_context,spec))
+    const completion=normalizedCompletion(await modelCall(request.api_body,request.request_context,spec,{onDelta:update=>{
+      const delta=String(update?.content??'')
+      if(delta&&ttftMs===null)ttftMs=Number(Math.max(0,Number(clock())-started).toFixed(1))
+      rawStream+=delta
+      liveTokens=Number.isSafeInteger(update?.output_tokens)?update.output_tokens:liveTokens+(delta?1:0)
+      const nextPreview=safeStreamingPreview(rawStream,request.preset)
+      if(nextPreview&&nextPreview!==preview)preview=nextPreview
+      onProgress({text:preview,output_tokens:liveTokens,ttft_ms:ttftMs})
+    }}))
+    const inferenceMs=Number(Math.max(0,Number(clock())-started).toFixed(1))
+    const outputTokens=normalizedOutputTokens(completion.usage,completion.timings)??completion.streamed_tokens
     return {
       ...modelMetadata(spec),
-      inference_ms:Number(Math.max(0,Number(clock())-started).toFixed(1)),
+      inference_ms:inferenceMs,
+      ttft_ms:ttftMs,
       usage:completion.usage,
       timings:completion.timings,
       finish_reason:completion.finish_reason,
-      output_tokens:normalizedOutputTokens(completion.usage,completion.timings),
+      output_tokens:outputTokens,
+      tokens_per_second:normalizedTokensPerSecond(completion.timings,outputTokens,inferenceMs,ttftMs),
       ...sanitizeMomentLensAnswer(completion.content,request.preset)
     }
   }catch(error){
@@ -202,10 +238,12 @@ async function runVariant(spec,request,modelCall,clock,{captureErrors=true}={}){
       raw_answer:'',
       reason:'model_error',
       inference_ms:Number(Math.max(0,Number(clock())-started).toFixed(1)),
+      ttft_ms:ttftMs,
       usage:null,
       timings:null,
       finish_reason:null,
       output_tokens:null,
+      tokens_per_second:null,
       error:String(error?.message||error).slice(0,500)
     }
   }
@@ -219,13 +257,13 @@ export async function analyseMomentLensPair(
 ){
   const request=buildMomentLensRequest({jpeg,preset})
   const calls={
-    flash:modelCalls.flash||((body)=>runtimePool.completion(VISIONPSY_MODELS[0],body)),
-    quality:modelCalls.quality||((body)=>runtimePool.completion(VISIONPSY_MODELS[1],body))
+    flash:modelCalls.flash||((body,_context,_spec,stream)=>runtimePool.completion(VISIONPSY_MODELS[0],body,stream)),
+    quality:modelCalls.quality||((body,_context,_spec,stream)=>runtimePool.completion(VISIONPSY_MODELS[1],body,stream))
   }
   const comparisonStarted=Number(clock())
   for(const spec of VISIONPSY_MODELS)onUpdate({type:'model-start',variant:spec.variant})
   const results=await Promise.all(VISIONPSY_MODELS.map(async spec=>{
-    const result=await runVariant(spec,request,calls[spec.variant],clock)
+    const result=await runVariant(spec,request,calls[spec.variant],clock,{onProgress:progress=>onUpdate({type:'model-progress',variant:spec.variant,...progress})})
     onUpdate({type:'model-result',result})
     return result
   }))

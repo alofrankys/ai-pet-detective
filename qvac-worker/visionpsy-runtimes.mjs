@@ -141,6 +141,49 @@ export async function inspectVisionPsyRuntime(spec,{fetchImpl=fetch}={}){
   }
 }
 
+export async function parseVisionPsyEventStream(body,{onDelta=()=>{}}={}){
+  if(!body?.getReader)throw new Error('VisionPsy streaming response unavailable')
+  const reader=body.getReader()
+  const decoder=new TextDecoder()
+  let buffer=''
+  let content=''
+  let finishReason=null
+  let usage=null
+  let timings=null
+  let streamedTokens=0
+  const consume=line=>{
+    const trimmed=line.trim()
+    if(!trimmed.startsWith('data:'))return false
+    const data=trimmed.slice(5).trim()
+    if(!data||data==='[DONE]')return data==='[DONE]'
+    const payload=JSON.parse(data)
+    const delta=String(payload?.choices?.[0]?.delta?.content??'')
+    if(delta){
+      content+=delta
+      streamedTokens++
+      onDelta({content:delta,output_tokens:streamedTokens})
+    }
+    const reason=payload?.choices?.[0]?.finish_reason
+    if(reason)finishReason=String(reason)
+    if(payload?.usage)usage=payload.usage
+    if(payload?.timings)timings=payload.timings
+    return false
+  }
+  let doneEvent=false
+  while(!doneEvent){
+    const {done,value}=await reader.read()
+    buffer+=decoder.decode(value||new Uint8Array(),{stream:!done})
+    const lines=buffer.split(/\r?\n/)
+    buffer=lines.pop()||''
+    for(const line of lines){
+      if(consume(line)){doneEvent=true;break}
+    }
+    if(done)break
+  }
+  if(buffer.trim()&&!doneEvent)consume(buffer)
+  return {content,finish_reason:finishReason,usage,timings,streamed_tokens:streamedTokens}
+}
+
 export function createVisionPsyRuntimePool({
   fetchImpl=fetch,
   spawnImpl=spawn,
@@ -256,14 +299,22 @@ export function createVisionPsyRuntimePool({
     }))
   }
 
-  async function completion(spec,request){
+  async function completion(spec,request,{onDelta}={}){
     const state=await ensure(spec)
+    const streaming=typeof onDelta==='function'
     const response=await fetchImpl(state.completionUrl,{
       method:'POST',
       headers:{'content-type':'application/json'},
-      body:JSON.stringify(request),
+      body:JSON.stringify(streaming?{...request,stream:true,stream_options:{include_usage:true}}:request),
       signal:AbortSignal.timeout(Number.isFinite(completionTimeoutMs)&&completionTimeoutMs>0?completionTimeoutMs:90_000)
     })
+    if(streaming){
+      if(!response.ok){
+        const body=await response.text()
+        throw new Error(`${spec.shortName} VisionPsy HTTP ${response.status}: ${body.slice(0,500)}`)
+      }
+      return parseVisionPsyEventStream(response.body,{onDelta})
+    }
     const body=await response.text()
     if(!response.ok)throw new Error(`${spec.shortName} VisionPsy HTTP ${response.status}: ${body.slice(0,500)}`)
     const payload=JSON.parse(body)

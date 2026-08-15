@@ -12,8 +12,11 @@
   <main class="studio">
     <header class="topbar">
       <div class="studio-brand">
-        <span class="eyebrow">VISIONPSY · DUAL Q4</span>
-        <h1>Moment Lens</h1>
+        <span class="brand-icon" aria-hidden="true"><i></i></span>
+        <div>
+          <span class="eyebrow">VISIONPSY · DUAL Q4</span>
+          <h1>Moment Lens</h1>
+        </div>
       </div>
       <div class="top-actions">
         <label class="compact-control"><span data-i18n="language">UI language</span><select id="languageSelect"><option value="en">English</option><option value="it">Italiano</option></select></label>
@@ -91,7 +94,9 @@
               <span>Q4_K_M · imatrix</span>
               <span data-i18n="momentLocal">Local · offline</span>
               <span>Greedy · max 256</span>
-              <span id="flashInferenceTime">— ms</span>
+              <span id="flashInferenceTime">— total</span>
+              <span id="flashTtft">— TTFT</span>
+              <span id="flashThroughput">— tok/s</span>
               <span id="flashOutputTokens">— output tokens</span>
             </div>
           </article>
@@ -106,7 +111,9 @@
               <span>Q4_K_M · imatrix</span>
               <span data-i18n="momentLocal">Local · offline</span>
               <span>Greedy · max 256</span>
-              <span id="qualityInferenceTime">— ms</span>
+              <span id="qualityInferenceTime">— total</span>
+              <span id="qualityTtft">— TTFT</span>
+              <span id="qualityThroughput">— tok/s</span>
               <span id="qualityOutputTokens">— output tokens</span>
             </div>
           </article>
